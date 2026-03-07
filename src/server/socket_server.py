@@ -4,6 +4,8 @@ import logging
 from typing import Optional, Dict, Any
 from abc import ABC, abstractmethod
 from construct import Struct, Int32ub, Bytes, this
+from command_handle_base import CommandHandler, COMMAND_REGISTRY
+import command_handles
 
 # Configure logging
 logging.basicConfig(
@@ -21,30 +23,43 @@ MessageProtocol = Struct(
 )
 
 
-class CommandHandler(ABC):
-    """Abstract base class for command handlers"""
-    
-    @abstractmethod
-    async def handle(self, data: Dict[str, Any], addr: tuple) -> Dict[str, Any]:
-        """Handle command and return response"""
-        pass
-
 
 class SocketServer:
     """Async socket server using asyncio with construct-based protocol parsing"""
     
-    def __init__(self, host: str = '0.0.0.0', port: int = 8888):
+    def __init__(self, host: str = '0.0.0.0', port: int = 8888, auto_register: bool = True):
         self.host = host
         self.port = port
         self.server: Optional[asyncio.Server] = None
         self.clients = set()
         self.command_handlers: Dict[str, CommandHandler] = {}
         
+        # Auto-register all command handlers from registry
+        if auto_register:
+            self.auto_register_handlers()
+        
+    def auto_register_handlers(self):
+        """Automatically register all command handlers from the global registry"""
+        registered = CommandHandler.get_registered_handlers()
+        for cmd_name, handler_class in registered.items():
+            try:
+                handler_instance = handler_class()
+                self.command_handlers[cmd_name] = handler_instance
+                logger.info(f"Auto-registered command: '{cmd_name}' -> {handler_class.__name__}")
+            except Exception as e:
+                logger.error(f"Failed to instantiate handler for '{cmd_name}': {e}")
+        
+        logger.info(f"Total auto-registered commands: {len(self.command_handlers)}")
+    
     def register_handler(self, cmd: str, handler: CommandHandler):
-        """Register a command handler"""
+        """Register a command handler (manual registration)"""
         self.command_handlers[cmd] = handler
         logger.info(f"Registered handler for command: {cmd}")
     
+    def get_available_commands(self) -> list:
+        """Get list of all available commands"""
+        return list(self.command_handlers.keys())
+
     async def read_exact(self, reader: asyncio.StreamReader, n: int) -> bytes:
         """Read exactly n bytes from the stream"""
         data = b''
@@ -206,6 +221,12 @@ class SocketServer:
             if cmd in self.command_handlers:
                 handler = self.command_handlers[cmd]
                 try:
+                    result, message = await handler.before_handle(data, addr)
+                    if result != 'ok':
+                        return {
+                            "status": "error",
+                            "message": str(message)
+                        }
                     response = await handler.handle(data, addr)
                     # Ensure response has status field
                     if "status" not in response:
@@ -270,61 +291,15 @@ class SocketServer:
         return len(self.clients)
 
 
-# Example command handlers
-class EchoHandler(CommandHandler):
-    """Simple echo command handler"""
-    
-    async def handle(self, data: Dict[str, Any], addr: tuple) -> Dict[str, Any]:
-        message = data.get('message', '')
-        logger.info(f"Echo command: {message}")
-        return {
-            "status": "success",
-            "data": {
-                "echo": message,
-                "timestamp": asyncio.get_event_loop().time()
-            }
-        }
-
-
-class PingHandler(CommandHandler):
-    """Ping command handler"""
-    
-    async def handle(self, data: Dict[str, Any], addr: tuple) -> Dict[str, Any]:
-        logger.info("Ping command received")
-        return {
-            "status": "success",
-            "data": {
-                "pong": True,
-                "server_time": asyncio.get_event_loop().time()
-            }
-        }
-
-
-class StatusHandler(CommandHandler):
-    """Server status command handler"""
-    
-    async def handle(self, data: Dict[str, Any], addr: tuple) -> Dict[str, Any]:
-        logger.info("Status command received")
-        return {
-            "status": "success",
-            "data": {
-                "server_status": "running",
-                "connected_clients": len(addr),
-                "uptime": "N/A"
-            }
-        }
 
 
 async def main():
-    """Main entry point with example command handlers"""
-    server = SocketServer(host='0.0.0.0', port=8888)
+    """Main entry point with auto-registered command handlers"""
+    server = SocketServer(host='0.0.0.0', port=8888, auto_register=True)
     
-    # Register example command handlers
-    server.register_handler('echo', EchoHandler())
-    server.register_handler('ping', PingHandler())
-    server.register_handler('status', StatusHandler())
-    
-    logger.info("Registered commands: echo, ping, status")
+    # Command handlers are automatically registered via __init_subclass__
+    # You can still manually register additional handlers if needed
+    logger.info(f"Available commands: {server.get_available_commands()}")
     logger.info("Using construct library for protocol parsing")
     
     try:
