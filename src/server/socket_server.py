@@ -227,7 +227,7 @@ class SocketServer:
                             "status": "error",
                             "message": str(message)
                         }
-                    response = await handler.handle(data, addr)
+                    result, response = await handler.handle(data, addr)
                     # Ensure response has status field
                     if "status" not in response:
                         response["status"] = "success"
