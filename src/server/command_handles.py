@@ -2,7 +2,9 @@ import asyncio
 import json
 import logging
 from typing import Optional, Dict, Any
-from command_handle_base import CommandHandler
+from .command_handle_base import CommandHandler
+
+from device.scpi_power_supply import SCPI_PowerSupply
 
 # Configure logging
 logging.basicConfig(
@@ -51,6 +53,35 @@ class StatusHandler(CommandHandler):
                 "timestamp": asyncio.get_event_loop().time()
         })
 
+
+class OpenDeviceHandler(CommandHandler):
+    """Open device command handler"""
+    
+    command_name = "open_device"  # Auto-registers for 'open_device' command
+    
+    async def handle(self, data: Dict[str, Any], addr: tuple) -> Dict[str, Any]:
+        device_id = data.get('device_id', None)
+        is_connected = await SCPI_PowerSupply().connect(serial_number='COM3')
+        # identifier = await SCPI_PowerSupply().get_identifier()
+        logger.info(f"device: ")
+        return self._make_positive_response(data={
+            "status": "success",
+            "device_id": device_id,
+            "device_status": "connected" if is_connected else "disconnected",
+            "timestamp": asyncio.get_event_loop().time()
+        })
+
+class CloseDeviceHandler(CommandHandler):
+    """Close device command handler"""
+    
+    command_name = "close_device"  # Auto-registers for 'close_device' command
+    
+    async def handle(self, data: Dict[str, Any], addr: tuple) -> Dict[str, Any]:
+        device_id = data.get('device_id', None)
+        await SCPI_PowerSupply('COM3').disconnect()
+        logger.info(f"Close device command: {device_id}")
+
+
 class SetVoltageHandler(CommandHandler):
     """Set voltage command handler"""
     
@@ -64,6 +95,8 @@ class SetVoltageHandler(CommandHandler):
     async def handle(self, data: Dict[str, Any], addr: tuple) -> Dict[str, Any]:
         voltage = data.get('value', None)
         logger.info(f"Set voltage command: {voltage}")
+
         # Perform actual voltage setting here
+        await SCPI_PowerSupply('COM3').set_voltage(voltage)
 
         self._make_positive_response({'value': voltage, 'timestamp': asyncio.get_event_loop().time()})

@@ -4,8 +4,8 @@ import logging
 from typing import Optional, Dict, Any
 from abc import ABC, abstractmethod
 from construct import Struct, Int32ub, Bytes, this
-from command_handle_base import CommandHandler, COMMAND_REGISTRY
-import command_handles
+from .command_handle_base import CommandHandler, COMMAND_REGISTRY
+from .command_handles import *
 
 # Configure logging
 logging.basicConfig(

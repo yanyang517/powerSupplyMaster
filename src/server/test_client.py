@@ -114,10 +114,22 @@ class JsonSocketClient:
                 assert 'Unknown command' in response['message']
                 logger.info("✅ Test 4 PASSEDn")
                 
+                # Test 5: Connect to device
+                logger.info("=" * 60)
+                logger.info("Test 5: Connect to Device")
+                logger.info("=" * 60)
+                response = await self.send_command(reader, writer, 'open_device', serial_number='COM3')
+                logger.info(f"Request: {{'cmd': 'open_device', 'serial_number': 'COM3'}}")
+                logger.info(f"Response: {response}")
+                assert response['status'] == 'success'
+                assert response['data']['device_status'] == 'connected'
+                logger.info("✅ Test 5 PASSEDn")
+                
+
+                # print("All tests passed!")
                 logger.info("=" * 60)
                 logger.info("🎉 ALL TESTS PASSED!")
                 logger.info("=" * 60)
-                
             finally:
                 writer.close()
                 await writer.wait_closed()
