@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ################################################################################
-## Form generated from reading UI file 'floating_classicBLsMwr.ui'
+## Form generated from reading UI file 'floating_classicmVFUpE.ui'
 ##
 ## Created by: Qt User Interface Compiler version 6.2.4
 ##
@@ -57,7 +57,7 @@ class Ui_Dialog(object):
         self.horizontalLayout_7 = QHBoxLayout(self.groupBox_3)
         self.horizontalLayout_7.setSpacing(0)
         self.horizontalLayout_7.setObjectName(u"horizontalLayout_7")
-        self.horizontalLayout_7.setContentsMargins(0, 0, 0, 0)
+        self.horizontalLayout_7.setContentsMargins(0, 0, 30, 0)
         self.current_label = QLabel(self.groupBox_3)
         self.current_label.setObjectName(u"current_label")
         self.current_label.setFont(font)

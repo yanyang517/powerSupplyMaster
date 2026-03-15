@@ -9,22 +9,28 @@ class FloatingWindow(QMainWindow):
 
     def __init__(self):
         super().__init__(flags=Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
-        # super().__init__()
+        # Create a central widget for the QMainWindow
+        self._central_widget = QWidget(self)
+        self.setCentralWidget(self._central_widget)
+        
         self.ui = Ui_Dialog()
-        self.ui.setupUi(self)
+        self.ui.setupUi(self._central_widget)
         self.current_value = 0.0
         self.output_value = True
 
-        self._transparency = 0.3
+        self._transparency = 0.1
 
 
         self.setWindowOpacity(self._transparency)
 
-        self.customContextMenuRequested.connect(self.showContextMenu)
+        self._central_widget.customContextMenuRequested.connect(self.showContextMenu)
         
         # For drag-to-move functionality
         self._drag_pos = None
         
+        # Set fixed size to match the UI design
+        self.setFixedSize(450, 117)
+
         self.repaint()
 
     # change transparency when mouse over
