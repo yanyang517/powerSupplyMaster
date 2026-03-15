@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ################################################################################
-## Form generated from reading UI file 'floating_classicztjTmo.ui'
+## Form generated from reading UI file 'floating_classicBLsMwr.ui'
 ##
 ## Created by: Qt User Interface Compiler version 6.2.4
 ##
@@ -35,10 +35,8 @@ class Ui_Dialog(object):
         self.groupBox_4.setObjectName(u"groupBox_4")
         self.groupBox_4.setContextMenuPolicy(Qt.DefaultContextMenu)
         self.groupBox_4.setFlat(True)
-        self.horizontalLayout_8 = QHBoxLayout(self.groupBox_4)
-        self.horizontalLayout_8.setSpacing(0)
-        self.horizontalLayout_8.setObjectName(u"horizontalLayout_8")
-        self.horizontalLayout_8.setContentsMargins(0, 0, 0, 0)
+        self.horizontalLayout_2 = QHBoxLayout(self.groupBox_4)
+        self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
         self.voltage_label = QLabel(self.groupBox_4)
         self.voltage_label.setObjectName(u"voltage_label")
         font = QFont()
@@ -47,13 +45,14 @@ class Ui_Dialog(object):
         self.voltage_label.setFrameShape(QFrame.NoFrame)
         self.voltage_label.setAlignment(Qt.AlignRight|Qt.AlignTrailing|Qt.AlignVCenter)
 
-        self.horizontalLayout_8.addWidget(self.voltage_label)
+        self.horizontalLayout_2.addWidget(self.voltage_label)
 
 
         self.horizontalLayout.addWidget(self.groupBox_4)
 
         self.groupBox_3 = QGroupBox(Dialog)
         self.groupBox_3.setObjectName(u"groupBox_3")
+        self.groupBox_3.setMouseTracking(True)
         self.groupBox_3.setFlat(True)
         self.horizontalLayout_7 = QHBoxLayout(self.groupBox_3)
         self.horizontalLayout_7.setSpacing(0)

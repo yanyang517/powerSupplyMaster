@@ -1,19 +1,63 @@
-from PySide6.QtWidgets import QWidget, QMenu
+from PySide6.QtWidgets import QWidget, QMenu, QMainWindow
 from PySide6.QtCore import Qt, Signal, Slot
 
-from ui.floating_classic import Ui_Dialog
+from .ui.floating_classic import Ui_Dialog
 
 
-class FloatingWindow(QWidget):
+class FloatingWindow(QMainWindow):
     doubleClicked = Signal()
 
     def __init__(self):
         super().__init__(flags=Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
-        self.ui = Ui_Dialog(self)
+        # super().__init__()
+        self.ui = Ui_Dialog()
+        self.ui.setupUi(self)
         self.current_value = 0.0
         self.output_value = True
 
+        self._transparency = 0.3
+
+
+        self.setWindowOpacity(self._transparency)
+
         self.customContextMenuRequested.connect(self.showContextMenu)
+        
+        # For drag-to-move functionality
+        self._drag_pos = None
+        
+        self.repaint()
+
+    # change transparency when mouse over
+    def enterEvent(self, event):
+        new_transparency = self._transparency + 0.1 
+        new_transparency = new_transparency if new_transparency < 1.0 else 1.0
+        self.setWindowOpacity(new_transparency)
+        super().enterEvent(event)
+    def leaveEvent(self, event):
+        self.setWindowOpacity(self._transparency)
+        super().leaveEvent(event)
+
+    # impl drag to move
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            # Store the offset between mouse position and window top-left corner
+            self._drag_pos = event.globalPos() - self.frameGeometry().topLeft()
+            event.accept()
+        super().mousePressEvent(event)
+    
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton and self._drag_pos is not None:
+            # Move window to global mouse position minus the stored offset
+            self.move(event.globalPos() - self._drag_pos)
+            event.accept()
+            
+            
+        super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        # Reset drag position when mouse is released
+        self._drag_pos = None
+        super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event):
         self.doubleClicked.emit()
@@ -22,12 +66,15 @@ class FloatingWindow(QWidget):
     def showContextMenu(self, pos):
         menu = QMenu(self)
         menu.addAction("显示主窗口", self.close)
-        menu.addAction("关闭电压输出", self.close)
+        menu.addAction("关闭电源输出", self.close)
         menu.addAction("隐藏悬浮窗", self.close)
         menu.exec(self.mapToGlobal(pos))
 
     @Slot(int)
     def update_transparency(self, value: int):
+        """Update the window transparency."""
+        value = min(100, max(0, value))
+        self._transparency = value / 100
         self.setWindowOpacity(value / 100)
 
     @Slot(bool)

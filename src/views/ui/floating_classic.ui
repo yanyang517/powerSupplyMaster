@@ -52,22 +52,7 @@
      <property name="flat">
       <bool>true</bool>
      </property>
-     <layout class="QHBoxLayout" name="horizontalLayout_8">
-      <property name="spacing">
-       <number>0</number>
-      </property>
-      <property name="leftMargin">
-       <number>0</number>
-      </property>
-      <property name="topMargin">
-       <number>0</number>
-      </property>
-      <property name="rightMargin">
-       <number>0</number>
-      </property>
-      <property name="bottomMargin">
-       <number>0</number>
-      </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_2">
       <item>
        <widget class="QLabel" name="voltage_label">
         <property name="font">
@@ -94,6 +79,9 @@
    </item>
    <item>
     <widget class="QGroupBox" name="groupBox_3">
+     <property name="mouseTracking">
+      <bool>true</bool>
+     </property>
      <property name="title">
       <string/>
      </property>
