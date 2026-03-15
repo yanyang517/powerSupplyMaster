@@ -10,7 +10,7 @@ from PySide6.QtWidgets import (
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, presenter):
+    def __init__(self, presenter = None):
         super().__init__()
         self.presenter = presenter
         self.setWindowTitle("Power Supply Master")
