@@ -293,7 +293,7 @@ class SocketServer:
 
 
 
-async def main():
+async def server_main():
     """Main entry point with auto-registered command handlers"""
     server = SocketServer(host='0.0.0.0', port=8888, auto_register=True)
     
@@ -311,4 +311,4 @@ async def main():
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    asyncio.run(server_main())
