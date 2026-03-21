@@ -8,6 +8,8 @@ from PySide6.QtWidgets import QApplication
 from server.socket_server import SocketServer, server_main
 from device.scpi_power_supply import SCPI_PowerSupply
 from views.main_window import MainWindow
+from presenter.presenter import Presenter
+from presenter.model import PowerSupplyModel
 
 # Configure logging
 logging.basicConfig(
@@ -23,8 +25,10 @@ def main():
     loop = QEventLoop(app)
     asyncio.set_event_loop(loop)
     
-    window = MainWindow()
-    window.show()
+    # window = MainWindow()
+    # window.show()
+
+    presenter = Presenter(MainWindow)
     
     loop.create_task(server_main())
     with loop:
