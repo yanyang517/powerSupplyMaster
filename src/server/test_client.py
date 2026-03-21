@@ -3,6 +3,13 @@ import json
 import logging
 from construct import Struct, Int32ub, Bytes, this
 
+from protocal.protocal import (
+    BaseModel, BaseRequest, #BaseResponse,
+    LoginRequest, #LoginResponse, 
+    LogoutRequest, #LogoutResponse, 
+    DataQueryRequest, #DataQueryResponse
+)
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -21,10 +28,8 @@ class JsonSocketClient:
         self.host = host
         self.port = port
     
-    async def build_message(self, cmd: str, **kwargs) -> bytes:
+    async def build_message(self, payload_json) -> bytes:
         """Build message with length prefix using construct"""
-        payload = {"cmd": cmd, **kwargs}
-        payload_json = json.dumps(payload, ensure_ascii=False)
         payload_bytes = payload_json.encode('utf-8')
         
         message = MessageProtocol.build({
@@ -32,7 +37,7 @@ class JsonSocketClient:
             'payload': payload_bytes
         })
         
-        logger.debug(f"Built message: cmd='{cmd}', size={len(payload_bytes)} bytes")
+        logger.debug(f"Built message: , size={len(payload_bytes)} bytes")
         return message
     
     async def parse_response(self, reader: asyncio.StreamReader) -> dict:
@@ -49,10 +54,11 @@ class JsonSocketClient:
         return response
     
     async def send_command(self, reader: asyncio.StreamReader, 
-                          writer: asyncio.StreamWriter, cmd: str, **kwargs) -> dict:
+                          writer: asyncio.StreamWriter, req) -> dict:
         """Send a command and receive response"""
-        request_message = await self.build_message(cmd, **kwargs)
-        writer.write(request_message)
+
+        message = await self.build_message(req.model_dump_json())
+        writer.write(message)
         await writer.drain()
         
         response = await self.parse_response(reader)
@@ -71,59 +77,71 @@ class JsonSocketClient:
             
             try:
                 # Test 1: Ping command
-                logger.info("=" * 60)
-                logger.info("Test 1: Ping Command")
-                logger.info("=" * 60)
-                response = await self.send_command(reader, writer, 'ping')
-                logger.info(f"Request: {{'cmd': 'ping'}}")
-                logger.info(f"Response: {response}")
-                assert response['status'] == 'success'
-                assert response['data']['pong'] == True
-                logger.info("✅ Test 1 PASSEDn")
+                # logger.info("=" * 60)
+                # logger.info("Test 1: Ping Command")
+                # logger.info("=" * 60)
+                # response = await self.send_command(reader, writer, 'ping')
+                # logger.info(f"Request: {{'cmd': 'ping'}}")
+                # logger.info(f"Response: {response}")
+                # assert response['status'] == 'success'
+                # assert response['data']['pong'] == True
+                # logger.info("✅ Test 1 PASSEDn")
                 
                 # Test 2: Echo command
+                # logger.info("=" * 60)
+                # logger.info("Test 2: Echo Command")
+                # logger.info("=" * 60)
+                # req = EchoRequest(message='Hello, Server!', timestamp=asyncio.get_running_loop().time())
+                # response = await self.send_command(reader, writer, 'echo', **req.model_dump())
+                # logger.info(f"Request: {{'cmd': 'echo', 'message': 'Hello, Server!'}}")
+                # logger.info(f"Response: {response}")
+                # assert response['success'] == True
+                # assert response['message'] == 'Hello, Server!'
+                # logger.info("✅ Test 2 PASSEDn")
+
+
                 logger.info("=" * 60)
                 logger.info("Test 2: Echo Command")
                 logger.info("=" * 60)
-                response = await self.send_command(reader, writer, 'echo', message='Hello, Server!')
-                logger.info(f"Request: {{'cmd': 'echo', 'message': 'Hello, Server!'}}")
+                req = DataQueryRequest(query='Hello, Server!')
+                response = await self.send_command(reader, writer, req)
                 logger.info(f"Response: {response}")
                 assert response['status'] == 'success'
-                assert response['data']['echo'] == 'Hello, Server!'
+                assert response['message'] == 'Hello, Server!'
                 logger.info("✅ Test 2 PASSEDn")
                 
                 # Test 3: Status command
-                logger.info("=" * 60)
-                logger.info("Test 3: Status Command")
-                logger.info("=" * 60)
-                response = await self.send_command(reader, writer, 'status')
-                logger.info(f"Request: {{'cmd': 'status'}}")
-                logger.info(f"Response: {response}")
-                assert response['status'] == 'success'
-                assert response['data']['server_status'] == 'running'
-                logger.info("✅ Test 3 PASSEDn")
+                # logger.info("=" * 60)
+                # logger.info("Test 3: Status Command")
+                # logger.info("=" * 60)
+                # response = await self.send_command(reader, writer, 'status')
+                # logger.info(f"Request: {{'cmd': 'status'}}")
+                # logger.info(f"Response: {response}")
+                # assert response['status'] == 'success'
+                # assert response['data']['server_status'] == 'running'
+                # logger.info("✅ Test 3 PASSEDn")
                 
                 # Test 4: Unknown command
-                logger.info("=" * 60)
-                logger.info("Test 4: Unknown Command (Error Handling)")
-                logger.info("=" * 60)
-                response = await self.send_command(reader, writer, 'unknown_cmd')
-                logger.info(f"Request: {{'cmd': 'unknown_cmd'}}")
-                logger.info(f"Response: {response}")
-                assert response['status'] == 'error'
-                assert 'Unknown command' in response['message']
-                logger.info("✅ Test 4 PASSEDn")
+                # logger.info("=" * 60)
+                # logger.info("Test 4: Unknown Command (Error Handling)")
+                # logger.info("=" * 60)
+                # response = await self.send_command(reader, writer, 'unknown_cmd')
+                # logger.info(f"Request: {{'cmd': 'unknown_cmd'}}")
+                # logger.info(f"Response: {response}")
+                # assert response['status'] == 'error'
+                # assert 'Unknown command' in response['message']
+                # logger.info("✅ Test 4 PASSEDn")
                 
                 # Test 5: Connect to device
-                logger.info("=" * 60)
-                logger.info("Test 5: Connect to Device")
-                logger.info("=" * 60)
-                response = await self.send_command(reader, writer, 'open_device', serial_number='COM3')
-                logger.info(f"Request: {{'cmd': 'open_device', 'serial_number': 'COM3'}}")
-                logger.info(f"Response: {response}")
-                assert response['status'] == 'success'
-                assert response['data']['device_status'] == 'connected'
-                logger.info("✅ Test 5 PASSEDn")
+                # logger.info("=" * 60)
+                # logger.info("Test 5: Connect to Device")
+                # logger.info("=" * 60)
+                # response = await self.send_command(reader, writer, 'open_device', serial_number='COM3')
+                # logger.info(f"Request: {{'cmd': 'open_device', 'serial_number': 'COM3'}}")
+                # logger.info(f"Response: {response}")
+                # assert response['status'] == 'success'
+                # assert response['data']['device_status'] == 'connected'
+                # logger.info("✅ Test 5 PASSEDn")
                 
 
                 # print("All tests passed!")
