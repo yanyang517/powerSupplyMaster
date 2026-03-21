@@ -15,6 +15,15 @@ class BaseRequest(BaseModel):
     request_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="唯一请求ID")
     timestamp: float = Field(default_factory=lambda: __import__('time').time())
 
+class EchoRequest(BaseRequest):
+    """
+    Echo 请求模型
+    用于测试，返回相同的消息
+    """
+    type: Literal["echo"] = "echo"
+    message: str
+
+
 # 具体请求类型 - 使用 Literal 作为鉴别器
 class LoginRequest(BaseRequest):
     type: Literal["login"] = "login"
@@ -41,12 +50,15 @@ RequestUnion = Union[
     Annotated[LogoutRequest, Tag("logout")],
     Annotated[DataQueryRequest, Tag("data_query")],
     Annotated[DataUpdateRequest, Tag("data_update")],
+    Annotated[EchoRequest, Tag("echo")]
 ]
 
 
 #############
 
 class BaseResponse(BaseModel):
+    """基础响应模型"""
+    request_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="唯一请求ID")
     status: Literal["success", "error"] = "success"
     message: str = ""
     timestamp: float = Field(default_factory=lambda: __import__('time').time())

@@ -10,6 +10,7 @@ from device.scpi_power_supply import SCPI_PowerSupply
 from .dispatcher import dispatcher
 from .protocal.protocal import (
     BaseModel, BaseRequest, BaseResponse,
+    EchoRequest,
     LoginRequest, #LoginResponse, 
     LogoutRequest, #LogoutResponse, 
     DataQueryRequest, #DataQueryResponse
@@ -21,6 +22,12 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+@dispatcher.register("echo", BaseRequest)
+async def handle_echo(request: EchoRequest) -> BaseModel:
+    """Echo command handler"""
+    logger.info(f"Echo command: {request.message}")
+    return BaseResponse(request_id = request.request_id, status="success", message=request.message)
 
 @dispatcher.register("login", LoginRequest)
 async def handle_login(request: LoginRequest) -> BaseModel:

@@ -5,6 +5,7 @@ from construct import Struct, Int32ub, Bytes, this
 
 from protocal.protocal import (
     BaseModel, BaseRequest, #BaseResponse,
+    EchoRequest,
     LoginRequest, #LoginResponse, 
     LogoutRequest, #LogoutResponse, 
     DataQueryRequest, #DataQueryResponse
@@ -88,27 +89,27 @@ class JsonSocketClient:
                 # logger.info("✅ Test 1 PASSEDn")
                 
                 # Test 2: Echo command
-                # logger.info("=" * 60)
-                # logger.info("Test 2: Echo Command")
-                # logger.info("=" * 60)
-                # req = EchoRequest(message='Hello, Server!', timestamp=asyncio.get_running_loop().time())
-                # response = await self.send_command(reader, writer, 'echo', **req.model_dump())
-                # logger.info(f"Request: {{'cmd': 'echo', 'message': 'Hello, Server!'}}")
-                # logger.info(f"Response: {response}")
-                # assert response['success'] == True
-                # assert response['message'] == 'Hello, Server!'
-                # logger.info("✅ Test 2 PASSEDn")
-
-
                 logger.info("=" * 60)
                 logger.info("Test 2: Echo Command")
                 logger.info("=" * 60)
-                req = DataQueryRequest(query='Hello, Server!')
+                req = EchoRequest(message='Hello, Server!')
                 response = await self.send_command(reader, writer, req)
+                logger.info(f"Request: {{'cmd': 'echo', 'message': 'Hello, Server!'}}")
                 logger.info(f"Response: {response}")
                 assert response['status'] == 'success'
                 assert response['message'] == 'Hello, Server!'
                 logger.info("✅ Test 2 PASSEDn")
+
+
+                # logger.info("=" * 60)
+                # logger.info("Test 2: Echo Command")
+                # logger.info("=" * 60)
+                # req = DataQueryRequest(query='Hello, Server!')
+                # response = await self.send_command(reader, writer, req)
+                # logger.info(f"Response: {response}")
+                # assert response['status'] == 'success'
+                # assert response['message'] == 'Hello, Server!'
+                # logger.info("✅ Test 2 PASSEDn")
                 
                 # Test 3: Status command
                 # logger.info("=" * 60)
