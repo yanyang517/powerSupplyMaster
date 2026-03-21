@@ -11,6 +11,9 @@ from .dispatcher import dispatcher
 from .protocal.protocal import (
     BaseModel, BaseRequest, BaseResponse,
     EchoRequest,
+    OpenDeviceRequest,
+    CloseDeviceRequest,
+
     LoginRequest, #LoginResponse, 
     LogoutRequest, #LogoutResponse, 
     DataQueryRequest, #DataQueryResponse
@@ -45,7 +48,6 @@ async def handle_query(request: DataQueryRequest) -> BaseModel:
     """数据查询"""
     logger.info("Data query command received")
     return BaseResponse(status="success")
-    
 
 # Example command handlers with auto-registration
 # class EchoHandler(CommandHandler):
@@ -73,35 +75,21 @@ async def handle_query(request: DataQueryRequest) -> BaseModel:
 #                 "timestamp": asyncio.get_event_loop().time()
 #         })
 
+@dispatcher.register("open_device", OpenDeviceRequest)
+async def handle_open_device(req: OpenDeviceRequest) -> BaseResponse:
+    # device_name = req.device_id
+    is_connected = await SCPI_PowerSupply().connect(serial_number=req.serial_number, baudrate=req.baud_rate)
+    # identifier = await SCPI_PowerSupply().get_identifier()
+    logger.info(f"device: ")
+    return BaseResponse(request_id=req.request_id, status="success")
 
-# class OpenDeviceHandler(CommandHandler):
-#     """Open device command handler"""
-    
-#     command_name = "open_device"  # Auto-registers for 'open_device' command
-    
-#     async def handle(self, data: Dict[str, Any], addr: tuple) -> Dict[str, Any]:
-#         device_id = data.get('device_id', None)
-#         serial_number = data.get('serial_number', None)
-#         baud_rate = data.get('baud_rate', 115200)
-#         is_connected = await SCPI_PowerSupply().connect(serial_number, baud_rate)
-#         # identifier = await SCPI_PowerSupply().get_identifier()
-#         logger.info(f"device: ")
-#         return self._make_positive_response(data={
-#             "status": "success",
-#             "device_id": device_id,
-#             "device_status": "connected" if is_connected else "disconnected",
-#             "timestamp": asyncio.get_event_loop().time()
-#         })
 
-# class CloseDeviceHandler(CommandHandler):
-#     """Close device command handler"""
-    
-#     command_name = "close_device"  # Auto-registers for 'close_device' command
-    
-#     async def handle(self, data: Dict[str, Any], addr: tuple) -> Dict[str, Any]:
-#         device_id = data.get('device_id', None)
-#         await SCPI_PowerSupply().disconnect()
-#         logger.info(f"Close device command: {device_id}")
+@dispatcher.register("close_device", CloseDeviceRequest)
+async def handle(req: CloseDeviceRequest) -> BaseResponse:
+    device_id = req.device_id
+    await SCPI_PowerSupply().disconnect()
+    logger.info(f"Close device command: {device_id}")
+    return BaseResponse(request_id=req.request_id, status="success")
 
 
 # class SetVoltageHandler(CommandHandler):

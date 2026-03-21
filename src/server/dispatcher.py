@@ -79,7 +79,11 @@ class RequestDispatcher:
             raise ValueError(f"Unknown request type: {request.type}")
         
         # 执行
-        resp = await handler(request)
+        try:
+            resp = await handler(request)
+        except Exception as e:
+            logger.error(f"Error processing request: {e}")
+            raise e
         logger.info(f"Response: {resp}")
         return resp
     

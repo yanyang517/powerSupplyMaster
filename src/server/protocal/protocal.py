@@ -34,6 +34,27 @@ class LogoutRequest(BaseRequest):
     type: Literal["logout"] = "logout"
     session_token: str
 
+# class DataQueryRequest(BaseRequest):
+#     type: Literal["data_query"] = "data_query"
+#     query: str
+#     limit: int = Field(default=100, le=1000)
+
+# class DataUpdateRequest(BaseRequest):
+#     type: Literal["data_update"] = "data_update"
+#     record_id: str
+#     changes: dict
+
+class OpenDeviceRequest(BaseRequest):
+    type: Literal["open_device"] = "open_device"
+    # device_id: str
+    serial_number: str
+    baud_rate: int = Field(default=115200)
+
+class CloseDeviceRequest(BaseRequest):
+    type: Literal["close_device"] = "close_device"
+    device_id: str
+
+
 class DataQueryRequest(BaseRequest):
     type: Literal["data_query"] = "data_query"
     query: str
@@ -50,7 +71,11 @@ RequestUnion = Union[
     Annotated[LogoutRequest, Tag("logout")],
     Annotated[DataQueryRequest, Tag("data_query")],
     Annotated[DataUpdateRequest, Tag("data_update")],
-    Annotated[EchoRequest, Tag("echo")]
+
+    Annotated[EchoRequest, Tag("echo")],
+    Annotated[OpenDeviceRequest, Tag("open_device")]
+    , Annotated[CloseDeviceRequest, Tag("close_device")]
+
 ]
 
 
@@ -58,9 +83,9 @@ RequestUnion = Union[
 
 class BaseResponse(BaseModel):
     """基础响应模型"""
-    request_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="唯一请求ID")
     status: Literal["success", "error"] = "success"
     message: str = ""
+    request_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="唯一请求ID")
     timestamp: float = Field(default_factory=lambda: __import__('time').time())
 
 

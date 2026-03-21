@@ -1,14 +1,18 @@
 import asyncio
 import json
 import logging
+import pytest
+from typing import Tuple
 from construct import Struct, Int32ub, Bytes, this
 
-from protocal.protocal import (
-    BaseModel, BaseRequest, #BaseResponse,
+from .protocal.protocal import (
+    BaseModel, BaseRequest,
     EchoRequest,
-    LoginRequest, #LoginResponse, 
-    LogoutRequest, #LogoutResponse, 
-    DataQueryRequest, #DataQueryResponse
+    OpenDeviceRequest,
+    CloseDeviceRequest,
+    LoginRequest,
+    LogoutRequest,
+    DataQueryRequest,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -64,108 +68,194 @@ class JsonSocketClient:
         
         response = await self.parse_response(reader)
         return response
+
+
+@pytest.mark.asyncio
+class TestSocketServer:
+    """Test suite for socket server functionality"""
     
-    async def run_tests(self):
-        """Run comprehensive test commands"""
+    async def test_echo_command(self):
+        """Test 2: Echo command - returns the same message"""
+        client = JsonSocketClient()
+        reader, writer = await asyncio.open_connection(client.host, client.port)
+        
         try:
-            logger.info("=" * 60)
-            logger.info("Starting Socket Server Tests")
-            logger.info("=" * 60)
-            logger.info(f"Connecting to {self.host}:{self.port}...")
+            req = EchoRequest(message='Hello, Server!')
+            response = await client.send_command(reader, writer, req)
             
-            reader, writer = await asyncio.open_connection(self.host, self.port)
-            logger.info("✅ Connected!n")
+            logger.info(f"Request: {{'cmd': 'echo', 'message': 'Hello, Server!'}}")
+            logger.info(f"Response: {response}")
             
-            try:
-                # Test 1: Ping command
-                # logger.info("=" * 60)
-                # logger.info("Test 1: Ping Command")
-                # logger.info("=" * 60)
-                # response = await self.send_command(reader, writer, 'ping')
-                # logger.info(f"Request: {{'cmd': 'ping'}}")
-                # logger.info(f"Response: {response}")
-                # assert response['status'] == 'success'
-                # assert response['data']['pong'] == True
-                # logger.info("✅ Test 1 PASSEDn")
-                
-                # Test 2: Echo command
-                logger.info("=" * 60)
-                logger.info("Test 2: Echo Command")
-                logger.info("=" * 60)
-                req = EchoRequest(message='Hello, Server!')
-                response = await self.send_command(reader, writer, req)
-                logger.info(f"Request: {{'cmd': 'echo', 'message': 'Hello, Server!'}}")
-                logger.info(f"Response: {response}")
-                assert response['status'] == 'success'
-                assert response['message'] == 'Hello, Server!'
-                logger.info("✅ Test 2 PASSEDn")
+            assert response['status'] == 'success'
+            assert response['message'] == 'Hello, Server!'
+            logger.info("✅ Echo command test PASSED")
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    async def test_open_device_command(self):
+        """Test 5: Connect to device command"""
+        client = JsonSocketClient()
+        reader, writer = await asyncio.open_connection(client.host, client.port)
+        
+        try:
+            req = OpenDeviceRequest(serial_number='COM3')
+            response = await client.send_command(reader, writer, req)
+            
+            logger.info(f"Request: {{'cmd': 'open_device', 'serial_number': 'COM3'}}")
+            logger.info(f"Response: {response}")
+            
+            assert response['status'] == 'success'
+            logger.info("✅ Open device command test PASSED")
+        finally:
+            writer.close()
+            await writer.wait_closed()
+    
+    async def test_close_device_command(self):
+        """Test 6: Close device command"""
+        client = JsonSocketClient()
+        reader, writer = await asyncio.open_connection(client.host, client.port)
+        
+        try:
+            req = CloseDeviceRequest(device_id='device_id_123')
+            response = await client.send_command(reader, writer, req)
+            
+            logger.info(f"Request: {{'cmd': 'close_device', 'device_id': 'device_id_123'}}")
+            assert response['status'] == 'success'
+        finally:
+            writer.close()
+            await writer.wait_closed()
+    
+    
+
+    @pytest.mark.skip(reason="Unknown command test needs to be implemented later")
+
+    async def test_login_command(self):
+        """Test login command"""
+        client = JsonSocketClient()
+        reader, writer = await asyncio.open_connection(client.host, client.port)
+        
+        try:
+            req = LoginRequest(username='testuser', password='testpass')
+            response = await client.send_command(reader, writer, req)
+            
+            logger.info(f"Request: {{'cmd': 'login', 'username': 'testuser'}}")
+            logger.info(f"Response: {response}")
+            
+            assert response['status'] == 'success'
+            logger.info("✅ Login command test PASSED")
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    @pytest.mark.skip(reason="Unknown command test needs to be implemented later")
+    async def test_logout_command(self):
+        """Test logout command"""
+        client = JsonSocketClient()
+        reader, writer = await asyncio.open_connection(client.host, client.port)
+        
+        try:
+            req = LogoutRequest(session_token='test_session_token_123')
+            response = await client.send_command(reader, writer, req)
+            
+            logger.info(f"Request: {{'cmd': 'logout', 'session_token': 'test_session_token_123'}}")
+            logger.info(f"Response: {response}")
+            
+            assert response['status'] == 'success'
+            logger.info("✅ Logout command test PASSED")
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    @pytest.mark.skip(reason="Unknown command test needs to be implemented later")
+    async def test_data_query_command(self):
+        """Test data query command"""
+        client = JsonSocketClient()
+        reader, writer = await asyncio.open_connection(client.host, client.port)
+        
+        try:
+            req = DataQueryRequest(query='SELECT * FROM devices', limit=50)
+            response = await client.send_command(reader, writer, req)
+            
+            logger.info(f"Request: {{'cmd': 'data_query', 'query': 'SELECT * FROM devices'}}")
+            logger.info(f"Response: {response}")
+            
+            assert response['status'] == 'success'
+            logger.info("✅ Data query command test PASSED")
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    @pytest.mark.skip(reason="Unknown command test needs to be implemented later")
+    async def test_unknown_command(self):
+        """Test unknown command error handling"""
+        from typing import Literal
+        
+        client = JsonSocketClient()
+        reader, writer = await asyncio.open_connection(client.host, client.port)
+        
+        try:
+            # Create a request with an unknown command type
+            class UnknownRequest(BaseRequest):
+                type: Literal["unknown_cmd"] = "unknown_cmd"
+                data: str = "test"
+            
+            req = UnknownRequest(data="test data")
+            response = await client.send_command(reader, writer, req)
+            
+            logger.info(f"Request: {{'cmd': 'unknown_cmd'}}")
+            logger.info(f"Response: {response}")
+            
+            assert response['status'] == 'error'
+            assert 'Unknown command' in response.get('message', '')
+            logger.info("✅ Unknown command error handling test PASSED")
+        finally:
+            writer.close()
+            await writer.wait_closed()
 
 
-                # logger.info("=" * 60)
-                # logger.info("Test 2: Echo Command")
-                # logger.info("=" * 60)
-                # req = DataQueryRequest(query='Hello, Server!')
-                # response = await self.send_command(reader, writer, req)
-                # logger.info(f"Response: {response}")
-                # assert response['status'] == 'success'
-                # assert response['message'] == 'Hello, Server!'
-                # logger.info("✅ Test 2 PASSEDn")
-                
-                # Test 3: Status command
-                # logger.info("=" * 60)
-                # logger.info("Test 3: Status Command")
-                # logger.info("=" * 60)
-                # response = await self.send_command(reader, writer, 'status')
-                # logger.info(f"Request: {{'cmd': 'status'}}")
-                # logger.info(f"Response: {response}")
-                # assert response['status'] == 'success'
-                # assert response['data']['server_status'] == 'running'
-                # logger.info("✅ Test 3 PASSEDn")
-                
-                # Test 4: Unknown command
-                # logger.info("=" * 60)
-                # logger.info("Test 4: Unknown Command (Error Handling)")
-                # logger.info("=" * 60)
-                # response = await self.send_command(reader, writer, 'unknown_cmd')
-                # logger.info(f"Request: {{'cmd': 'unknown_cmd'}}")
-                # logger.info(f"Response: {response}")
-                # assert response['status'] == 'error'
-                # assert 'Unknown command' in response['message']
-                # logger.info("✅ Test 4 PASSEDn")
-                
-                # Test 5: Connect to device
-                # logger.info("=" * 60)
-                # logger.info("Test 5: Connect to Device")
-                # logger.info("=" * 60)
-                # response = await self.send_command(reader, writer, 'open_device', serial_number='COM3')
-                # logger.info(f"Request: {{'cmd': 'open_device', 'serial_number': 'COM3'}}")
-                # logger.info(f"Response: {response}")
-                # assert response['status'] == 'success'
-                # assert response['data']['device_status'] == 'connected'
-                # logger.info("✅ Test 5 PASSEDn")
-                
+@pytest.mark.asyncio
+class TestConnectionManagement:
+    """Test suite for connection management"""
+    
+    async def test_connection_establishment(self):
+        """Test that client can establish connection to server"""
+        client = JsonSocketClient()
+        
+        try:
+            reader, writer = await asyncio.open_connection(client.host, client.port)
+            logger.info("✅ Connection established successfully")
+            assert writer.is_closing() is False
+            
+            writer.close()
+            await writer.wait_closed()
+            logger.info("✅ Connection closed successfully")
+        except ConnectionRefusedError:
+            pytest.fail("Could not connect! Is the server running?")
 
-                # print("All tests passed!")
-                logger.info("=" * 60)
-                logger.info("🎉 ALL TESTS PASSED!")
-                logger.info("=" * 60)
-            finally:
+    async def test_multiple_connections(self):
+        """Test multiple simultaneous connections"""
+        client = JsonSocketClient()
+        connections = []
+        
+        try:
+            # Create multiple connections
+            for i in range(3):
+                reader, writer = await asyncio.open_connection(client.host, client.port)
+                connections.append((reader, writer))
+                logger.info(f"✅ Connection {i+1} established")
+            
+            assert len(connections) == 3
+            
+            # Close all connections
+            for reader, writer in connections:
                 writer.close()
                 await writer.wait_closed()
-                logger.info("n✅ Connection closed")
-                
+            
+            logger.info("✅ All connections closed successfully")
         except ConnectionRefusedError:
-            logger.error("❌ Could not connect! Is the server running?")
-            logger.error("Please start the server first:")
-            logger.error("  python srcserversocket_server.py")
-        except Exception as e:
-            logger.error(f"❌ Test failed: {e}", exc_info=True)
-
-
-async def main():
-    client = JsonSocketClient()
-    await client.run_tests()
+            pytest.fail("Could not connect! Is the server running?")
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    pytest.main([__file__, "-v", "-s"])
