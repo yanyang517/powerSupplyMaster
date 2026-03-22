@@ -107,3 +107,10 @@ async def handle(req: VoltageQueryRequest) -> BaseResponse:
     voltage = await SCPI_PowerSupply().get_voltage()
     logger.info(f"Voltage query command: {voltage}")
     return VauleResponse(request_id=req.request_id, status="success", value=voltage)
+
+# current_query
+@dispatcher.register("current_query", CurrentQueryRequest)
+async def handle(req: CurrentQueryRequest) -> BaseResponse:
+    current = await SCPI_PowerSupply().get_current()
+    logger.info(f"Current query command: {current}")
+    return VauleResponse(request_id=req.request_id, status="success", value=current)

@@ -49,6 +49,15 @@ class SCPI_PowerSupply(object):
 
         return float(response.decode().strip())
     
+    # get current
+    async def get_current(self) -> float:
+        self._writer.write(b"CURR?\n")
+        await asyncio.wait_for( self._writer.drain() , timeout=1)
+
+        response = await asyncio.wait_for( self._reader.readline() , timeout=1)
+
+        return float(response.decode().strip())
+
     async def connect(self, *, serial_number, baudrate: int = 115200) -> bool:
         try:
             self.serial_number = serial_number
