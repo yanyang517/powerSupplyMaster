@@ -275,14 +275,48 @@ class TestDevice:
         logger.info(f"Response: {response}")
         assert response['status'] == 'success'
         logger.info("✅ Set voltage command test PASSED")
-        # await asyncio.sleep(1)
-        # req = VoltageQueryRequest()
-        # response = await client.send_command(reader, writer, req)
-        # logger.info(f"Request: {{'cmd': 'voltage_query'}}")
-        # logger.info(f"Response: {response}")
-        # assert response['status'] == 'success'
-        # assert response['value'] == 5.0
-        # logger.info("✅ Set voltage query test PASSED")
+    
+    async def test_voltage_query_command(self, opened_device):
+        """Test 8: Voltage query command"""
+        client = opened_device
+        req = VoltageQueryRequest()
+        response = await client.request(req)
+        
+        logger.info(f"Request: {{'cmd': 'voltage_query'}}")
+        logger.info(f"Response: {response}")
+        assert response['status'] == 'success'
+        assert abs(response['value'] - 5.0) < 0.11
+
+
+@pytest.mark.asyncio
+class TestVoltageDevice:
+    """Test suite for server functionality"""
+    _target_voltage = 5.0
+    async def test_set_voltage_command(self, opened_device):
+        """Test 7: Set voltage command"""
+
+        client = opened_device
+        req = SetVoltageRequest(value=self._target_voltage)
+        response = await client.request(req)
+        
+        logger.info(f"Request: {{'cmd': 'set_voltage', 'value': 5.0}}")
+        logger.info(f"Response: {response}")
+        assert response['status'] == 'success'
+        logger.info("✅ Set voltage command test PASSED")
+    
+    #repeat 5 times
+    @pytest.mark.repeat(5)
+    async def test_repeat_voltage_query_command(self, opened_device):
+        """Test 8: Voltage query command"""
+        client = opened_device
+        req = VoltageQueryRequest()
+        response = await client.request(req)
+        
+        logger.info(f"Request: {{'cmd': 'voltage_query'}}")
+        logger.info(f"Response: {response}")
+        assert response['status'] == 'success'
+        assert abs(response['value'] - self._target_voltage) < 0.11
+
 
         
 

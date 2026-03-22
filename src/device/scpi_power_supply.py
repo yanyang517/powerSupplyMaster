@@ -29,21 +29,24 @@ class SCPI_PowerSupply(object):
 
 
     async def get_identifier(self) -> str:
-        self._writer.write(b"*IDN?")
+        self._writer.write(b"*IDN?\n")
         await asyncio.wait_for( self._writer.drain() , timeout=1)
 
         response = await asyncio.wait_for( self._reader.readline() , timeout=1)
         return response.decode().strip()
     
     async def set_voltage(self, voltage: float) -> None:
-        self._writer.write(f"VOLT {voltage}".encode())
+        self._writer.write(f"VOLT {voltage:.02f}\n".encode())
         await asyncio.wait_for( self._writer.drain() , timeout=1)
+        ret = await asyncio.wait_for( self._reader.readline() , timeout=1)
+        # if "OK" is in ret:
 
     async def get_voltage(self) -> float:
-        self._writer.write(b"VOLT?")
+        self._writer.write(b"VOLT?\n")
         await asyncio.wait_for( self._writer.drain() , timeout=1)
 
         response = await asyncio.wait_for( self._reader.readline() , timeout=1)
+
         return float(response.decode().strip())
     
     async def connect(self, *, serial_number, baudrate: int = 115200) -> bool:
