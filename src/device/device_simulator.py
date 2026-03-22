@@ -40,13 +40,13 @@ class SCPISimulator:
         self.is_running = False
         
         # 设备状态
-        self.voltage: float = 0.0  # 当前电压 (V)
+        self.voltage: float = 12.0  # 当前电压 (V)
         self.current: float = 0.0  # 当前电流 (A)
         self.power: float = 0.0    # 当前功率 (W)
         self.output_enabled: bool = False  # 输出开关状态
         
         # 保护限制
-        self.max_voltage: float = 30.0  # 最大电压限制 (V)
+        self.max_voltage: float = 20.0  # 最大电压限制 (V)
         self.max_current: float = 3.0   # 最大电流限制 (A)
         
         # 通道配置
@@ -166,18 +166,18 @@ class SCPISimulator:
             current = float(cmd.split()[1])
             return self.set_current(current)
         elif cmd == 'CURR:PROT?':
-            return f"{self.max_current:.3f}"
+            return f"{self.max_current:.2f}"
         elif cmd.startswith('CURR:PROT '):
             max_curr = float(cmd.split()[1])
             return self.set_max_current(max_curr)
         
         # 功率查询
         elif cmd == 'POW?':
-            return f"{self.power:.3f}"
+            return f"{self.power:.2f}"
         
         # 输出控制
         elif cmd == 'OUTP?':
-            return '1' if self.output_enabled else '0'
+            return 'ON' if self.output_enabled else 'OFF'
         elif cmd == 'OUTP ON':
             return self.set_output(True)
         elif cmd == 'OUTP OFF':
