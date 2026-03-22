@@ -101,3 +101,9 @@ async def handle(req: SetVoltageRequest) -> BaseResponse:
     # Perform actual voltage setting here
     await SCPI_PowerSupply().set_voltage(voltage)
     return VauleResponse(request_id=req.request_id, status="success", value=voltage)
+
+@dispatcher.register("voltage_query", VoltageQueryRequest)
+async def handle(req: VoltageQueryRequest) -> BaseResponse:
+    voltage = await SCPI_PowerSupply().get_voltage()
+    logger.info(f"Voltage query command: {voltage}")
+    return VauleResponse(request_id=req.request_id, status="success", value=voltage)
