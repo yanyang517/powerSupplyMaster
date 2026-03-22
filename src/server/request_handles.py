@@ -94,7 +94,7 @@ async def handle(req: CloseDeviceRequest) -> BaseResponse:
     return BaseResponse(request_id=req.request_id, status="success")
 
 @dispatcher.register("set_voltage", SetVoltageRequest)
-async def handle(self, req: SetVoltageRequest) -> BaseResponse:
+async def handle(req: SetVoltageRequest) -> BaseResponse:
     voltage = req.value
     logger.info(f"Set voltage command: {voltage}")
 

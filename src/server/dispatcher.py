@@ -58,15 +58,7 @@ class RequestDispatcher:
         """解析并分发请求"""
         
         logger.info(f"Received raw data: {raw_data}")
-        # 第一步：解析为联合类型（自动根据 type 字段选择具体模型）
         try:
-            # if isinstance(raw_data, bytes):
-            #     raw_data = raw_data.decode('utf-8').rstrip('\n')
-            
-            # 使用 discriminator 自动路由到正确模型
-            # logger.info(f"Received request: {raw_data}")
-            # logger.info(json.loads(raw_data))  # 预检查
-
             request = request_type_adpter.validate_json(raw_data)
             logger.info(f"Parsed request: {request}")
         except ValidationError as e:

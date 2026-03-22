@@ -64,27 +64,27 @@ class SettingQueryRequest(BaseRequest):
 
 # 设置请求
 class SetVoltageRequest(BaseRequest):
-    type: Literal["setting_update"] = "set_voltage"
+    type: Literal["set_voltage"] = "set_voltage"
     value: float
     unit: Literal["V", "mV"] = "V"
 
 class SetCurrentRequest(BaseRequest):
-    type: Literal["setting_update"] = "set_current"
+    type: Literal["set_current"] = "set_current"
     value: float
     unit: Literal["A", "mA"] = "A"
 
 class SetMaxCurrentRequest(BaseRequest):
-    type: Literal["setting_update"] = "set_max_current"
+    type: Literal["set_max_current"] = "set_max_current"
     value: float
     unit: Literal["A", "mA"] = "A"
 
 class SetMaxVoltageRequest(BaseRequest):
-    type: Literal["setting_update"] = "set_max_voltage"
+    type: Literal["set_max_voltage"] = "set_max_voltage"
     value: float
     unit: Literal["V", "mV"] = "V"
 
 class SetOutputRequest(BaseRequest):
-    type: Literal["setting_update"] = "set_output"
+    type: Literal["set_output"] = "set_output"
     value: bool
 
 

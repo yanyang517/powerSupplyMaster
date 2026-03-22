@@ -142,6 +142,14 @@ class TestSocketServer:
         reader, writer = await asyncio.open_connection(client.host, client.port)
         
         try:
+            req = OpenDeviceRequest(serial_number='COM8')
+            response = await client.send_command(reader, writer, req)
+            
+            logger.info(f"Request: {{'cmd': 'open_device', 'serial_number': 'COM8'}}")
+            logger.info(f"Response: {response}")
+            
+            assert response['status'] == 'success'
+        
             req = SetVoltageRequest(value=5.0)
             response = await client.send_command(reader, writer, req)
             
@@ -199,24 +207,6 @@ class TestSocketServer:
             writer.close()
             await writer.wait_closed()
 
-    @pytest.mark.skip(reason="Unknown command test needs to be implemented later")
-    async def test_data_query_command(self):
-        """Test data query command"""
-        client = JsonSocketClient()
-        reader, writer = await asyncio.open_connection(client.host, client.port)
-        
-        try:
-            req = DataQueryRequest(query='SELECT * FROM devices', limit=50)
-            response = await client.send_command(reader, writer, req)
-            
-            logger.info(f"Request: {{'cmd': 'data_query', 'query': 'SELECT * FROM devices'}}")
-            logger.info(f"Response: {response}")
-            
-            assert response['status'] == 'success'
-            logger.info("✅ Data query command test PASSED")
-        finally:
-            writer.close()
-            await writer.wait_closed()
 
     @pytest.mark.skip(reason="Unknown command test needs to be implemented later")
     async def test_unknown_command(self):
