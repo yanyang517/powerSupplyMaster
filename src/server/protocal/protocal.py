@@ -34,15 +34,6 @@ class LogoutRequest(BaseRequest):
     type: Literal["logout"] = "logout"
     session_token: str
 
-# class DataQueryRequest(BaseRequest):
-#     type: Literal["data_query"] = "data_query"
-#     query: str
-#     limit: int = Field(default=100, le=1000)
-
-# class DataUpdateRequest(BaseRequest):
-#     type: Literal["data_update"] = "data_update"
-#     record_id: str
-#     changes: dict
 
 class OpenDeviceRequest(BaseRequest):
     type: Literal["open_device"] = "open_device"
@@ -55,26 +46,65 @@ class CloseDeviceRequest(BaseRequest):
     device_id: str
 
 
-class DataQueryRequest(BaseRequest):
-    type: Literal["data_query"] = "data_query"
-    query: str
-    limit: int = Field(default=100, le=1000)
+class VoltageQueryRequest(BaseRequest):
+    type: Literal["voltage_query"] = "voltage_query"
+    cache: bool = Field(default=False)
 
-class DataUpdateRequest(BaseRequest):
-    type: Literal["data_update"] = "data_update"
-    record_id: str
-    changes: dict
+class CurrentQueryRequest(BaseRequest):
+    type: Literal["current_query"] = "current_query"
+    cache: bool = Field(default=False)
+
+class StatusQueryRequest(BaseRequest):
+    type: Literal["output_query"] = "output_query"
+    cache: bool = Field(default=False)
+
+class SettingQueryRequest(BaseRequest):
+    type: Literal["setting_query"] = "setting_query"
+    cache: bool = Field(default=True)
+
+# 设置请求
+class SetVoltageRequest(BaseRequest):
+    type: Literal["setting_update"] = "set_voltage"
+    value: float
+    unit: Literal["V", "mV"] = "V"
+
+class SetCurrentRequest(BaseRequest):
+    type: Literal["setting_update"] = "set_current"
+    value: float
+    unit: Literal["A", "mA"] = "A"
+
+class SetMaxCurrentRequest(BaseRequest):
+    type: Literal["setting_update"] = "set_max_current"
+    value: float
+    unit: Literal["A", "mA"] = "A"
+
+class SetMaxVoltageRequest(BaseRequest):
+    type: Literal["setting_update"] = "set_max_voltage"
+    value: float
+    unit: Literal["V", "mV"] = "V"
+
+class SetOutputRequest(BaseRequest):
+    type: Literal["setting_update"] = "set_output"
+    value: bool
+
 
 # 联合类型 - Pydantic 自动根据 type 字段反序列化
 RequestUnion = Union[
     Annotated[LoginRequest, Tag("login")],
     Annotated[LogoutRequest, Tag("logout")],
-    Annotated[DataQueryRequest, Tag("data_query")],
-    Annotated[DataUpdateRequest, Tag("data_update")],
 
     Annotated[EchoRequest, Tag("echo")],
-    Annotated[OpenDeviceRequest, Tag("open_device")]
-    , Annotated[CloseDeviceRequest, Tag("close_device")]
+
+    Annotated[OpenDeviceRequest, Tag("open_device")], 
+    Annotated[CloseDeviceRequest, Tag("close_device")],
+
+    Annotated[VoltageQueryRequest, Tag("voltage_query")],
+    Annotated[CurrentQueryRequest, Tag("current_query")],
+    Annotated[StatusQueryRequest, Tag("output_query")],
+    Annotated[SettingQueryRequest, Tag("setting_query")],
+
+    Annotated[SetVoltageRequest, Tag("set_voltage")],
+    Annotated[SetCurrentRequest, Tag("set_current")],
 
 ]
 
@@ -88,6 +118,9 @@ class BaseResponse(BaseModel):
     request_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="唯一请求ID")
     timestamp: float = Field(default_factory=lambda: __import__('time').time())
 
+class VauleResponse(BaseResponse):
+    """带值的响应模型"""
+    value: Union[float, int, bool]
 
 # schema = RequestUnion.model_json_schema()
 # logger.info("Schema 生成成功，深度正常")

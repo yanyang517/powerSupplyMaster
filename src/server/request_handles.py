@@ -9,14 +9,21 @@ from device.scpi_power_supply import SCPI_PowerSupply
 
 from .dispatcher import dispatcher
 from .protocal.protocal import (
-    BaseModel, BaseRequest, BaseResponse,
+    BaseModel, BaseRequest, BaseResponse, VauleResponse,
     EchoRequest,
+    LoginRequest, 
+    LogoutRequest, 
     OpenDeviceRequest,
     CloseDeviceRequest,
 
-    LoginRequest, #LoginResponse, 
-    LogoutRequest, #LogoutResponse, 
-    DataQueryRequest, #DataQueryResponse
+    VoltageQueryRequest,
+    CurrentQueryRequest,
+    StatusQueryRequest,
+    
+    SetVoltageRequest,
+    SetCurrentRequest,
+    SetMaxCurrentRequest,
+    SetMaxVoltageRequest,
 )
 
 # Configure logging
@@ -43,11 +50,6 @@ async def handle_logout(request: LogoutRequest) -> BaseModel:
     """登出处理"""
     return BaseModel(status="success")
 
-@dispatcher.register("data_query", DataQueryRequest)
-async def handle_query(request: DataQueryRequest) -> BaseModel:
-    """数据查询"""
-    logger.info("Data query command received")
-    return BaseResponse(status="success")
 
 # Example command handlers with auto-registration
 # class EchoHandler(CommandHandler):
@@ -91,22 +93,11 @@ async def handle(req: CloseDeviceRequest) -> BaseResponse:
     logger.info(f"Close device command: {device_id}")
     return BaseResponse(request_id=req.request_id, status="success")
 
+@dispatcher.register("set_voltage", SetVoltageRequest)
+async def handle(self, req: SetVoltageRequest) -> BaseResponse:
+    voltage = req.value
+    logger.info(f"Set voltage command: {voltage}")
 
-# class SetVoltageHandler(CommandHandler):
-#     """Set voltage command handler"""
-    
-#     command_name = "set_voltage"  # Auto-registers for 'set_voltage' command
-    
-#     async def before_handle(self, data: Dict[str, Any], addr: tuple) -> tuple:
-#         voltage = data.get('value', None)
-#         if voltage is None:
-#             return self._make_error_response('Invalid voltage value')
-#         return self._make_positive_response({'value': voltage})
-#     async def handle(self, data: Dict[str, Any], addr: tuple) -> Dict[str, Any]:
-#         voltage = data.get('value', None)
-#         logger.info(f"Set voltage command: {voltage}")
-
-#         # Perform actual voltage setting here
-#         await SCPI_PowerSupply().set_voltage(voltage)
-
-#         self._make_positive_response({'value': voltage, 'timestamp': asyncio.get_event_loop().time()})
+    # Perform actual voltage setting here
+    await SCPI_PowerSupply().set_voltage(voltage)
+    return VauleResponse(request_id=req.request_id, status="success", value=voltage)

@@ -12,7 +12,17 @@ from .protocal.protocal import (
     CloseDeviceRequest,
     LoginRequest,
     LogoutRequest,
-    DataQueryRequest,
+
+    VauleResponse,
+
+    VoltageQueryRequest,
+    CurrentQueryRequest,
+    StatusQueryRequest,
+    
+    SetVoltageRequest,
+    SetCurrentRequest,
+    SetMaxCurrentRequest,
+    SetMaxVoltageRequest,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -99,10 +109,10 @@ class TestSocketServer:
         reader, writer = await asyncio.open_connection(client.host, client.port)
         
         try:
-            req = OpenDeviceRequest(serial_number='COM3')
+            req = OpenDeviceRequest(serial_number='COM8')
             response = await client.send_command(reader, writer, req)
             
-            logger.info(f"Request: {{'cmd': 'open_device', 'serial_number': 'COM3'}}")
+            logger.info(f"Request: {{'cmd': 'open_device', 'serial_number': 'COM8'}}")
             logger.info(f"Response: {response}")
             
             assert response['status'] == 'success'
@@ -126,8 +136,30 @@ class TestSocketServer:
             writer.close()
             await writer.wait_closed()
     
-    
-
+    async def test_set_voltage_command(self):
+        """Test 7: Set voltage command"""
+        client = JsonSocketClient()
+        reader, writer = await asyncio.open_connection(client.host, client.port)
+        
+        try:
+            req = SetVoltageRequest(value=5.0)
+            response = await client.send_command(reader, writer, req)
+            
+            logger.info(f"Request: {{'cmd': 'set_voltage', 'value': 5.0}}")
+            logger.info(f"Response: {response}")
+            assert response['status'] == 'success'
+            logger.info("✅ Set voltage command test PASSED")
+            # await asyncio.sleep(1)
+            # req = VoltageQueryRequest()
+            # response = await client.send_command(reader, writer, req)
+            # logger.info(f"Request: {{'cmd': 'voltage_query'}}")
+            # logger.info(f"Response: {response}")
+            # assert response['status'] == 'success'
+            # assert response['value'] == 5.0
+            # logger.info("✅ Set voltage query test PASSED")
+        finally:
+            writer.close()
+            await writer.wait_closed()
     @pytest.mark.skip(reason="Unknown command test needs to be implemented later")
 
     async def test_login_command(self):
