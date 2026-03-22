@@ -27,13 +27,17 @@ class PowerSupplyModel():
     def __init__(self):
         pass
     
-    async def connect(self, port, baudrate = 115200) -> None:
+    async def connect(self, port, baudrate = 115200) -> bool:
 
         open_device = OpenDeviceRequest(serial_number=port, baud_rate=baudrate)
         rsp = await dispatcher.dispatch(open_device.model_dump_json().encode())
+        if rsp.status == "success":
+            return True
+        else:
+            return False
 
     async def close(self) -> None:
-        close_device = CloseDeviceRequest()
+        close_device = CloseDeviceRequest(device_id='')
         rsp = await dispatcher.dispatch(close_device.model_dump_json().encode())
 
     async def set_voltage(self, voltage: float) -> None:

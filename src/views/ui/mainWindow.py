@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ################################################################################
-## Form generated from reading UI file 'mainWindowLLLXRb.ui'
+## Form generated from reading UI file 'mainWindowQIDXtX.ui'
 ##
 ## Created by: Qt User Interface Compiler version 6.2.4
 ##
@@ -82,15 +82,15 @@ class Ui_MainWindow(object):
 
         self.connect_Btn = QPushButton(self.groupBox)
         self.connect_Btn.setObjectName(u"connect_Btn")
-        self.connect_Btn.setCheckable(True)
-        self.connect_Btn.setAutoExclusive(True)
+        self.connect_Btn.setCheckable(False)
+        self.connect_Btn.setAutoExclusive(False)
 
         self.horizontalLayout.addWidget(self.connect_Btn)
 
         self.disconnect_Btn = QPushButton(self.groupBox)
         self.disconnect_Btn.setObjectName(u"disconnect_Btn")
-        self.disconnect_Btn.setCheckable(True)
-        self.disconnect_Btn.setAutoExclusive(True)
+        self.disconnect_Btn.setCheckable(False)
+        self.disconnect_Btn.setAutoExclusive(False)
 
         self.horizontalLayout.addWidget(self.disconnect_Btn)
 
@@ -175,7 +175,7 @@ class Ui_MainWindow(object):
 
         self.voltage_dial = QDial(self.groupBox1)
         self.voltage_dial.setObjectName(u"voltage_dial")
-        self.voltage_dial.setNotchesVisible(True)
+        self.voltage_dial.setNotchesVisible(False)
 
         self.verticalLayout_2.addWidget(self.voltage_dial)
 
@@ -251,6 +251,7 @@ class Ui_MainWindow(object):
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.device_info_lineEdit.sizePolicy().hasHeightForWidth())
         self.device_info_lineEdit.setSizePolicy(sizePolicy)
+        self.device_info_lineEdit.setReadOnly(True)
 
         self.formLayout_6.setWidget(0, QFormLayout.FieldRole, self.device_info_lineEdit)
 
@@ -471,9 +472,9 @@ class Ui_MainWindow(object):
         self.groupBox2.setTitle(QCoreApplication.translate("MainWindow", u"\u8f93\u51fa\u5f00\u5173", None))
         self.ouput_ctrl_Btn.setText(QCoreApplication.translate("MainWindow", u"PushButton", None))
         self.label_9.setText(QCoreApplication.translate("MainWindow", u"\u6700\u5927\u8f93\u51fa\u7535\u538b:", None))
-        self.max_voltage_spinbox.setSuffix(QCoreApplication.translate("MainWindow", u"A", None))
+        self.max_voltage_spinbox.setSuffix(QCoreApplication.translate("MainWindow", u"V", None))
         self.label_8.setText(QCoreApplication.translate("MainWindow", u"\u6700\u5927\u8f93\u51fa\u7535\u6d41:", None))
-        self.max_current_spinBox.setSuffix(QCoreApplication.translate("MainWindow", u"V", None))
+        self.max_current_spinBox.setSuffix(QCoreApplication.translate("MainWindow", u"A", None))
         self.label_7.setText(QCoreApplication.translate("MainWindow", u"\u8bbe\u5907\u4fe1\u606f:", None))
         self.ctrl_enable_CB.setText(QCoreApplication.translate("MainWindow", u"\u63a7\u5236\u4f7f\u80fd", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_control), QCoreApplication.translate("MainWindow", u"\u63a7\u5236\u9762\u677f", None))

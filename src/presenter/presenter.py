@@ -27,6 +27,8 @@ class Presenter(QObject):
         self.connect_signal_slots()
         self.view.show()
 
+        self._refresh_voltage_current_task = None
+
     def get_available_ports(self) -> list:
         '''
         return the available ports
@@ -44,23 +46,24 @@ class Presenter(QObject):
 
     @asyncSlot()
     async def close_device(self):
-        await self.model.close_device()
+        # self._period_task_stop_event.set()
 
-        if self._refresh_voltage_current_task is not None:
-            self._refresh_voltage_current_task.cancel()
-            self._refresh_voltage_current_task = None
+        self._refresh_voltage_current_task.cancel()
+
+            
+        await self.model.close()
 
     @asyncSlot()
     async def open_device(self):
         serial_port = self.view.ui.com_num_comboBox.currentText()
         baudrate = self.view.ui.baudrate_comboBox.currentText()
-        await self.model.connect(port=serial_port)
-        # self._refresh_timer.
 
-        self._refresh_voltage_current_task = asyncio.create_task(self.refresh_voltage_current())
+        ret = await self.model.connect(port=serial_port)
+        # self._refresh_timer.
+        if ret is True:
+            self._refresh_voltage_current_task = asyncio.create_task(self.refresh_voltage_current())
         
     
-    @asyncSlot()
     async def refresh_voltage_current(self):
         try:
             while True:
@@ -77,8 +80,8 @@ class Presenter(QObject):
     @asyncSlot(float)
     async def set_voltage(self, voltage):
 
-        await self.model.set_voltage(voltage)
         self.view.update_voltage_setting(voltage)
+        await self.model.set_voltage(voltage)
     
     # @asyncSlot(float)
     # async def set_max_voltage(self, voltage):

@@ -100,10 +100,10 @@
               <string>连接</string>
              </property>
              <property name="checkable">
-              <bool>true</bool>
+              <bool>false</bool>
              </property>
              <property name="autoExclusive">
-              <bool>true</bool>
+              <bool>false</bool>
              </property>
             </widget>
            </item>
@@ -113,10 +113,10 @@
               <string>断开</string>
              </property>
              <property name="checkable">
-              <bool>true</bool>
+              <bool>false</bool>
              </property>
              <property name="autoExclusive">
-              <bool>true</bool>
+              <bool>false</bool>
              </property>
             </widget>
            </item>
@@ -268,7 +268,7 @@
                 <item>
                  <widget class="QDial" name="voltage_dial">
                   <property name="notchesVisible">
-                   <bool>true</bool>
+                   <bool>false</bool>
                   </property>
                  </widget>
                 </item>
@@ -310,7 +310,7 @@
                <item row="0" column="1">
                 <widget class="QDoubleSpinBox" name="max_voltage_spinbox">
                  <property name="suffix">
-                  <string>A</string>
+                  <string>V</string>
                  </property>
                  <property name="singleStep">
                   <double>0.100000000000000</double>
@@ -331,7 +331,7 @@
                <item row="0" column="1">
                 <widget class="QDoubleSpinBox" name="max_current_spinBox">
                  <property name="suffix">
-                  <string>V</string>
+                  <string>A</string>
                  </property>
                  <property name="singleStep">
                   <double>0.100000000000000</double>
@@ -360,6 +360,9 @@
                    <horstretch>0</horstretch>
                    <verstretch>0</verstretch>
                   </sizepolicy>
+                 </property>
+                 <property name="readOnly">
+                  <bool>true</bool>
                  </property>
                 </widget>
                </item>
