@@ -52,7 +52,7 @@ class SCPI_PowerSupply(object):
             self.baudrate = baudrate
             self._reader, self._writer = await serial_asyncio.open_serial_connection(url=self.serial_number, baudrate=self.baudrate)
 
-            # self.identifier = await self.get_identifier()
+            self.identifier = await self.get_identifier()
             self.is_connected = True
         except Exception as e:
             logger.error(f"Error connecting to {self.serial_number}: {e}")

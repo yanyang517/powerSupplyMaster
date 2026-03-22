@@ -5,7 +5,9 @@ from typing import Optional, Dict, Any
 from abc import ABC, abstractmethod
 from construct import Struct, Int32ub, Bytes, this
 from .command_handle_base import CommandHandler, COMMAND_REGISTRY
-from .command_handles import *
+from .request_handles import *
+from pydantic import ValidationError
+from .dispatcher import dispatcher
 
 # Configure logging
 logging.basicConfig(
@@ -25,41 +27,11 @@ MessageProtocol = Struct(
 
 
 class SocketServer:
-    """Async socket server using asyncio with construct-based protocol parsing"""
-    
-    def __init__(self, host: str = '0.0.0.0', port: int = 8888, auto_register: bool = True):
+    def __init__(self, host: str = "0.0.0.0", port: int = 8888):
         self.host = host
         self.port = port
-        self.server: Optional[asyncio.Server] = None
-        self.clients = set()
-        self.command_handlers: Dict[str, CommandHandler] = {}
-        
-        # Auto-register all command handlers from registry
-        if auto_register:
-            self.auto_register_handlers()
-        
-    def auto_register_handlers(self):
-        """Automatically register all command handlers from the global registry"""
-        registered = CommandHandler.get_registered_handlers()
-        for cmd_name, handler_class in registered.items():
-            try:
-                handler_instance = handler_class()
-                self.command_handlers[cmd_name] = handler_instance
-                logger.info(f"Auto-registered command: '{cmd_name}' -> {handler_class.__name__}")
-            except Exception as e:
-                logger.error(f"Failed to instantiate handler for '{cmd_name}': {e}")
-        
-        logger.info(f"Total auto-registered commands: {len(self.command_handlers)}")
+        self.dispatcher = dispatcher
     
-    def register_handler(self, cmd: str, handler: CommandHandler):
-        """Register a command handler (manual registration)"""
-        self.command_handlers[cmd] = handler
-        logger.info(f"Registered handler for command: {cmd}")
-    
-    def get_available_commands(self) -> list:
-        """Get list of all available commands"""
-        return list(self.command_handlers.keys())
-
     async def read_exact(self, reader: asyncio.StreamReader, n: int) -> bytes:
         """Read exactly n bytes from the stream"""
         data = b''
@@ -70,7 +42,7 @@ class SocketServer:
             data += chunk
         return data
     
-    async def parse_message(self, reader: asyncio.StreamReader) -> Dict[str, Any]:
+    async def parse_message(self, reader: asyncio.StreamReader) -> str:
         """
         Parse incoming message using construct library
         
@@ -93,15 +65,15 @@ class SocketServer:
             
             # Decode and parse JSON
             message_json = payload_bytes.decode('utf-8')
-            data = json.loads(message_json)
+            # data = json.loads(message_json)
             
-            return data
+            return message_json
             
         except Exception as e:
             logger.error(f"Failed to parse message: {e}", exc_info=True)
             raise
     
-    async def build_response(self, response_data: Dict[str, Any]) -> bytes:
+    async def build_response(self, response_json) -> bytes:
         """
         Build response message with length prefix using construct
         
@@ -112,7 +84,6 @@ class SocketServer:
             Bytes with format: 4-byte length + JSON payload
         """
         # Serialize response to JSON
-        response_json = json.dumps(response_data)
         response_bytes = response_json.encode('utf-8')
         
         # Build message with length prefix using construct
@@ -122,193 +93,67 @@ class SocketServer:
         })
         
         return message
-    
-    async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        """Handle individual client connections"""
+    async def handle_client(
+        self, 
+        reader: asyncio.StreamReader, 
+        writer: asyncio.StreamWriter
+    ):
         addr = writer.get_extra_info('peername')
-        logger.info(f"New connection from {addr}")
-        
-        self.clients.add(writer)
+        logger.info(f"Client connected: {addr}")
         
         try:
             while True:
+                # Parse incoming message using construct
+                data = await self.parse_message(reader)
+                logger.info(f"Received from {addr}: {data}")
+                if not data:
+                    break
+                
                 try:
-                    # Parse incoming message using construct
-                    data = await self.parse_message(reader)
+                    # Pydantic 验证 + 业务分发
+                    response:BaseModel = await self.dispatcher.dispatch(data)
+                    logger.info(f"response: {response}")
+                    response_json = response.model_dump_json()
+                    logger.info(f"Sending to {addr}: {response_json}")
                     
-                    cmd = data.get('cmd', 'unknown')
-                    logger.info(f"Received from {addr}: cmd='{cmd}'")
-                    
-                    # Process the message and get response
-                    response = await self.process_message(data, addr)
-                    
-                    # Build and send response using construct
-                    response_message = await self.build_response(response)
-                    writer.write(response_message)
-                    await writer.drain()
-                    
-                except ConnectionError as e:
-                    logger.info(f"Client {addr} disconnected: {e}")
-                    break
-                    
-                except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON from {addr}: {e}")
+                except ValidationError as e:
                     error_response = {
-                        "status": "error",
-                        "message": f"Invalid JSON: {str(e)}"
+                        "error": "validation_error",
+                        "details": e.errors(include_url=False)
                     }
-                    await self.send_error_response(writer, error_response)
-                    break
+                    response_json = json.dumps(error_response)
                     
-                except asyncio.IncompleteReadError:
-                    logger.info(f"Client {addr} closed connection unexpectedly")
-                    break
+                except Exception as e:
+                    error_response = {
+                        "error": "internal_error",
+                        "message": str(e)
+                    }
+                    response_json = json.dumps(error_response)
+                
+                # 发送响应
+                response_data = await self.build_response(response_json)
+                writer.write(response_data)
+                await writer.drain()
                 
         except asyncio.CancelledError:
-            logger.info(f"Connection to {addr} cancelled")
-        except Exception as e:
-            logger.error(f"Error handling client {addr}: {e}", exc_info=True)
+            pass
         finally:
-            # Clean up
-            self.clients.discard(writer)
-            try:
-                writer.close()
-                await writer.wait_closed()
-            except Exception as e:
-                logger.error(f"Error closing connection: {e}")
-            logger.info(f"Connection closed with {addr}")
-    
-    async def send_error_response(self, writer: asyncio.StreamWriter, error_response: dict):
-        """Send error response to client"""
-        try:
-            response_message = await self.build_response(error_response)
-            writer.write(response_message)
-            await writer.drain()
-        except Exception as e:
-            logger.error(f"Error sending error response: {e}")
-    
-    async def process_message(self, data: Dict[str, Any], addr: tuple) -> Dict[str, Any]:
-        """
-        Process incoming JSON message and route to appropriate handler based on cmd
-        
-        Expected format:
-        {
-            "cmd": "command_name",
-            ... other payload data
-        }
-        
-        Returns:
-        {
-            "status": "success" | "error",
-            "data": ... (response data),
-            "message": ... (optional error message)
-        }
-        """
-        try:
-            # Extract command
-            cmd = data.get('cmd')
-            
-            if not cmd:
-                logger.warning(f"No 'cmd' field in message from {addr}")
-                return {
-                    "status": "error",
-                    "message": "Missing 'cmd' field in request"
-                }
-            
-            logger.debug(f"Processing command '{cmd}' from {addr}")
-            
-            # Route to appropriate handler based on cmd
-            if cmd in self.command_handlers:
-                handler = self.command_handlers[cmd]
-                try:
-                    result, message = await handler.before_handle(data, addr)
-                    if result != 'ok':
-                        return {
-                            "status": "error",
-                            "message": str(message)
-                        }
-                    result, response = await handler.handle(data, addr)
-                    # Ensure response has status field
-                    if "status" not in response:
-                        response["status"] = "success"
-                    return response
-                except Exception as e:
-                    logger.error(f"Handler error for cmd '{cmd}': {e}", exc_info=True)
-                    return {
-                        "status": "error",
-                        "message": f"Handler error: {str(e)}"
-                    }
-            else:
-                logger.warning(f"Unknown command '{cmd}' from {addr}")
-                return {
-                    "status": "error",
-                    "message": f"Unknown command: {cmd}"
-                }
-                
-        except Exception as e:
-            logger.error(f"Error processing message: {e}", exc_info=True)
-            return {
-                "status": "error",
-                "message": f"Internal error: {str(e)}"
-            }
+            writer.close()
+            await writer.wait_closed()
+            print(f"Client disconnected: {addr}")
     
     async def start(self):
-        """Start the socket server"""
-        self.server = await asyncio.start_server(
-            self.handle_client,
-            self.host,
-            self.port
+        server = await asyncio.start_server(
+            self.handle_client, self.host, self.port
         )
-        
-        addr = self.server.sockets[0].getsockname()
-        logger.info(f"Server started on {addr[0]}:{addr[1]}")
-        
-        async with self.server:
-            await self.server.serve_forever()
-    
-    async def stop(self):
-        """Stop the socket server"""
-        logger.info("Stopping server...")
-        
-        # Close all client connections
-        for writer in self.clients:
-            try:
-                writer.close()
-                await writer.wait_closed()
-            except Exception as e:
-                logger.error(f"Error closing client connection: {e}")
-        
-        self.clients.clear()
-        
-        # Stop the server
-        if self.server:
-            self.server.close()
-            await self.server.wait_closed()
-            logger.info("Server stopped")
-    
-    def get_connected_clients(self) -> int:
-        """Get the number of connected clients"""
-        return len(self.clients)
-
-
-
+        print(f"Server started on {self.host}:{self.port}")
+        async with server:
+            await server.serve_forever()
 
 async def server_main():
-    """Main entry point with auto-registered command handlers"""
-    server = SocketServer(host='0.0.0.0', port=8888, auto_register=True)
+    server = SocketServer()
+    await server.start()
     
-    # Command handlers are automatically registered via __init_subclass__
-    # You can still manually register additional handlers if needed
-    logger.info(f"Available commands: {server.get_available_commands()}")
-    logger.info("Using construct library for protocol parsing")
-    
-    try:
-        await server.start()
-    except KeyboardInterrupt:
-        logger.info("Server interrupted by user")
-    finally:
-        await server.stop()
-
-
-if __name__ == '__main__':
+# 运行
+if __name__ == "__main__":
     asyncio.run(server_main())

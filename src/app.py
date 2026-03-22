@@ -1,6 +1,7 @@
 import sys
 import asyncio
 import logging
+import argparse
 
 from qasync import QEventLoop, asyncSlot, asyncClose
 from PySide6.QtWidgets import QApplication
@@ -18,21 +19,29 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--no-gui', action='store_true', help='Run without GUI (server mode only)')
+    return parser.parse_args()
 
-def main():
-    app = QApplication(sys.argv)
+def main(args=None):
+    args = parse_args()
+    if not args.no_gui:
+        app = QApplication(sys.argv)
     
-    loop = QEventLoop(app)
-    asyncio.set_event_loop(loop)
-    
-    # window = MainWindow()
-    # window.show()
+        loop = QEventLoop(app)
+        asyncio.set_event_loop(loop)
+        
+        # window = MainWindow()
+        # window.show()
 
-    presenter = Presenter(MainWindow)
-    
-    loop.create_task(server_main())
-    with loop:
-        loop.run_forever()
+        presenter = Presenter(MainWindow)
+        
+        loop.create_task(server_main())
+        with loop:
+            loop.run_forever()
+    else:
+        asyncio.run(server_main())
 
 if __name__ == '__main__':
-    main()
+    main(sys.argv)
