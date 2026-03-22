@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import pytest
+import pytest_asyncio
 from typing import Tuple
 from construct import Struct, Int32ub, Bytes, this
 
@@ -35,13 +36,20 @@ MessageProtocol = Struct(
     "payload" / Bytes(this.length)
 )
 
-
+@pytest.mark.asyncio
 class JsonSocketClient:
     """JSON protocol socket client with construct-based message parsing"""
     
     def __init__(self, host: str = '127.0.0.1', port: int = 8888):
         self.host = host
         self.port = port
+        
+
+    async def connect(self) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+        self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
+
+    async def close(self) -> None:
+        self._writer.close()    
     
     async def build_message(self, payload_json) -> bytes:
         """Build message with length prefix using construct"""
@@ -79,6 +87,9 @@ class JsonSocketClient:
         response = await self.parse_response(reader)
         return response
 
+    async def request(self, req):
+        rsp = await self.send_command(self._reader, self._writer, req)
+        return rsp
 
 @pytest.mark.asyncio
 class TestSocketServer:
@@ -234,6 +245,47 @@ class TestSocketServer:
         finally:
             writer.close()
             await writer.wait_closed()
+
+
+@pytest_asyncio.fixture
+async def opened_device():
+    client = JsonSocketClient()
+    await client.connect()
+
+    req = OpenDeviceRequest(serial_number='COM8')
+    response = await client.request(req)
+    
+    yield client
+    
+    await client.close()
+
+
+@pytest.mark.asyncio
+class TestDevice:
+    """Test suite for server functionality"""
+    
+    async def test_set_voltage_command(self, opened_device):
+        """Test 7: Set voltage command"""
+
+        client = opened_device
+        req = SetVoltageRequest(value=5.0)
+        response = await client.request(req)
+        
+        logger.info(f"Request: {{'cmd': 'set_voltage', 'value': 5.0}}")
+        logger.info(f"Response: {response}")
+        assert response['status'] == 'success'
+        logger.info("✅ Set voltage command test PASSED")
+        # await asyncio.sleep(1)
+        # req = VoltageQueryRequest()
+        # response = await client.send_command(reader, writer, req)
+        # logger.info(f"Request: {{'cmd': 'voltage_query'}}")
+        # logger.info(f"Response: {response}")
+        # assert response['status'] == 'success'
+        # assert response['value'] == 5.0
+        # logger.info("✅ Set voltage query test PASSED")
+
+        
+
 
 
 @pytest.mark.asyncio
