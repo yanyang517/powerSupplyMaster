@@ -58,7 +58,7 @@ class Presenter(QObject):
         serial_port = self.view.ui.com_num_comboBox.currentText()
         baudrate = self.view.ui.baudrate_comboBox.currentText()
 
-        ret = await self.model.connect(port=serial_port)
+        ret = await self.model.open(port=serial_port)
         # self._refresh_timer.
         if ret is True:
             self._refresh_voltage_current_task = asyncio.create_task(self.refresh_voltage_current())

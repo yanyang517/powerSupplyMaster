@@ -3,25 +3,14 @@ import logging
 
 import asyncio
 
-from server.dispatcher import dispatcher
-from server.protocal.protocal import (
-    BaseRequest, 
-    BaseResponse, 
-    LoginRequest, 
-    LogoutRequest, 
-    OpenDeviceRequest, 
-    CloseDeviceRequest, 
-    SetVoltageRequest, 
-    SetCurrentRequest, 
-    SetMaxVoltageRequest, 
-    SetMaxCurrentRequest, 
-    SetOnOffRequest,
-    StatusQueryRequest, 
-    VoltageQueryRequest, 
-    CurrentQueryRequest, 
-    SettingQueryRequest,
-    DeviceIdQueryRequest,
+from device.scpi_power_supply import SCPI_PowerSupply
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+logger = logging.getLogger(__name__)
 
 
 class PowerSupplyModel():
@@ -29,39 +18,33 @@ class PowerSupplyModel():
     def __init__(self):
         pass
     
-    async def connect(self, port, baudrate = 115200) -> bool:
+    async def open(self, port, baudrate = 115200) -> bool:
 
-        open_device = OpenDeviceRequest(serial_number=port, baud_rate=baudrate)
-        rsp = await dispatcher.dispatch(open_device.model_dump_json().encode())
-        if rsp.status == "success":
-            return True
-        else:
-            return False
+        is_connected = await SCPI_PowerSupply().connect(serial_number=port, baudrate=baudrate)
+        logger.info(f"device: {is_connected=}")
+        return is_connected
 
     async def close(self) -> None:
-        close_device = CloseDeviceRequest(device_id='')
-        rsp = await dispatcher.dispatch(close_device.model_dump_json().encode())
-
+        await SCPI_PowerSupply().disconnect()
+        logger.info(f"Close device")
     async def set_voltage(self, voltage: float) -> None:
-        set_voltage = SetVoltageRequest(value=voltage)
-        rsp = await dispatcher.dispatch(set_voltage.model_dump_json().encode())
-    
+        await SCPI_PowerSupply().set_voltage(voltage)
+        logger.info(f"Set voltage: {voltage}")
+
     async def set_on_off(self, value: bool) -> None:
-        set_on_off = SetOnOffRequest(value=value)
-        rsp = await dispatcher.dispatch(set_on_off.model_dump_json().encode())
+        await SCPI_PowerSupply().set_on_off(value)
+        logger.info(f"Set on/off: {value}")
 
     async def get_voltage(self) -> float:
-        voltage_query = VoltageQueryRequest()
-        rsp = await dispatcher.dispatch(voltage_query.model_dump_json().encode())
-        return rsp.value
+        value = await SCPI_PowerSupply().get_voltage()
+        return value
+
 
     async def get_current(self) -> float:
-        current_query = CurrentQueryRequest()
-        rsp = await dispatcher.dispatch(current_query.model_dump_json().encode())
-        return rsp.value
+        value = await SCPI_PowerSupply().get_current()
+        return value
     
     async def get_device_id(self) -> str:
-        status_query = DeviceIdQueryRequest()
-        rsp = await dispatcher.dispatch(status_query.model_dump_json().encode())
-        return rsp.value
+        device_id = await SCPI_PowerSupply().get_identifier()
+        return device_id
     
