@@ -58,8 +58,16 @@ class StatusQueryRequest(BaseRequest):
     type: Literal["output_query"] = "output_query"
     cache: bool = Field(default=False)
 
+class OnOffQueryRequest(BaseRequest):
+    type: Literal["on_off_query"] = "on_off_query"
+    cache: bool = Field(default=False)
+
 class SettingQueryRequest(BaseRequest):
     type: Literal["setting_query"] = "setting_query"
+    cache: bool = Field(default=True)
+
+class DeviceIdQueryRequest(BaseRequest):
+    type: Literal["device_id_query"] = "device_id_query"
     cache: bool = Field(default=True)
 
 # 设置请求
@@ -83,8 +91,8 @@ class SetMaxVoltageRequest(BaseRequest):
     value: float
     unit: Literal["V", "mV"] = "V"
 
-class SetOutputRequest(BaseRequest):
-    type: Literal["set_output"] = "set_output"
+class SetOnOffRequest(BaseRequest):
+    type: Literal["set_on_off"] = "set_on_off"
     value: bool
 
 
@@ -102,9 +110,13 @@ RequestUnion = Union[
     Annotated[CurrentQueryRequest, Tag("current_query")],
     Annotated[StatusQueryRequest, Tag("output_query")],
     Annotated[SettingQueryRequest, Tag("setting_query")],
+    Annotated[OnOffQueryRequest, Tag("on_off_query")],
 
     Annotated[SetVoltageRequest, Tag("set_voltage")],
     Annotated[SetCurrentRequest, Tag("set_current")],
+    Annotated[SetOnOffRequest, Tag("set_on_off")],
+
+    Annotated[DeviceIdQueryRequest, Tag("device_id_query")],
 
 ]
 
@@ -120,7 +132,7 @@ class BaseResponse(BaseModel):
 
 class VauleResponse(BaseResponse):
     """带值的响应模型"""
-    value: Union[float, int, bool]
+    value: Union[float, int, bool, str]
 
 # schema = RequestUnion.model_json_schema()
 # logger.info("Schema 生成成功，深度正常")
