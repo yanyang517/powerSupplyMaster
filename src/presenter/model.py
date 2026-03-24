@@ -15,10 +15,12 @@ from server.protocal.protocal import (
     SetCurrentRequest, 
     SetMaxVoltageRequest, 
     SetMaxCurrentRequest, 
+    SetOnOffRequest,
     StatusQueryRequest, 
     VoltageQueryRequest, 
     CurrentQueryRequest, 
     SettingQueryRequest,
+    DeviceIdQueryRequest,
 )
 
 
@@ -43,6 +45,10 @@ class PowerSupplyModel():
     async def set_voltage(self, voltage: float) -> None:
         set_voltage = SetVoltageRequest(value=voltage)
         rsp = await dispatcher.dispatch(set_voltage.model_dump_json().encode())
+    
+    async def set_on_off(self, value: bool) -> None:
+        set_on_off = SetOnOffRequest(value=value)
+        rsp = await dispatcher.dispatch(set_on_off.model_dump_json().encode())
 
     async def get_voltage(self) -> float:
         voltage_query = VoltageQueryRequest()
@@ -53,3 +59,9 @@ class PowerSupplyModel():
         current_query = CurrentQueryRequest()
         rsp = await dispatcher.dispatch(current_query.model_dump_json().encode())
         return rsp.value
+    
+    async def get_device_id(self) -> str:
+        status_query = DeviceIdQueryRequest()
+        rsp = await dispatcher.dispatch(status_query.model_dump_json().encode())
+        return rsp.value
+    

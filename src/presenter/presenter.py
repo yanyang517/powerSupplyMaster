@@ -62,7 +62,10 @@ class Presenter(QObject):
         # self._refresh_timer.
         if ret is True:
             self._refresh_voltage_current_task = asyncio.create_task(self.refresh_voltage_current())
-        
+            pass
+            
+        ret = await self.model.get_device_id()
+        self.view.update_device_id(ret)      
     
     async def refresh_voltage_current(self):
         try:
@@ -92,4 +95,8 @@ class Presenter(QObject):
     # async def set_max_current(self, current):
     #     await self.model.set_max_current(current)
     #     self.view.update_max_current_setting(current)
+
+    @asyncSlot(bool)
+    async def set_on_off(self, value: bool):
+        await self.model.set_on_off(value)
         

@@ -41,6 +41,7 @@ class MainWindow(QMainWindow):
         self.ui.voltage_dial.valueChanged.connect(self.on_voltage_dial_value_changed)
         self.ui.connect_Btn.clicked.connect(self.presenter.open_device)
         self.ui.disconnect_Btn.clicked.connect(self.presenter.close_device)
+        self.ui.ouput_ctrl_Btn.clicked.connect(lambda v: self.presenter.set_on_off(v))
 
         self.ui.max_voltage_spinbox.valueChanged.connect(lambda value: self.ui.voltage_spinBox.setMaximum(value))
         self.ui.max_voltage_spinbox.valueChanged.connect(lambda value: self.ui.voltage_dial.setMaximum(value*100))
@@ -96,4 +97,15 @@ class MainWindow(QMainWindow):
     def update_max_current_setting(self, value: float):
         self.ui.max_current_spinBox.setValue(value)
 
+    def update_device_id(self, value: str):
+        self.ui.device_info_lineEdit.setText(value)
 
+    
+    def _set_ctrl_widget_enable(self, enable: bool):
+        self.ui.ouput_ctrl_Btn.setEnabled(enable)
+        self.ui.max_voltage_spinbox.setEnabled(enable)
+        self.ui.max_current_spinBox.setEnabled(enable)
+        self.ui.voltage_spinBox.setEnabled(enable)
+        self.ui.voltage_dial.setEnabled(enable)
+        self.ui.volatage_label.setEnabled(enable)
+        self.ui.current_label.setEnabled(enable)

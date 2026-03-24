@@ -60,6 +60,13 @@ class SCPI_PowerSupply(object):
 
         return float(response.decode().strip())
     
+    async def set_on_off(self, on: bool) -> None:
+        if on:
+            await self._send_cmd(b"OUTP ON\n")
+        else:
+            await self._send_cmd(b"OUTP OFF\n")
+        
+    
     # get current
     async def get_current(self) -> float:
         response = await self._send_cmd(b"CURR?\n")
@@ -85,4 +92,7 @@ class SCPI_PowerSupply(object):
             await self._writer.wait_closed()
             self.is_connected = False
 
+    async def get_on_off(self) -> bool:
+        response = await self._send_cmd(b"OUTP?\n")
+        return response.decode().strip() == "ON"
 

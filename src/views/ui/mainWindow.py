@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ################################################################################
-## Form generated from reading UI file 'mainWindowQIDXtX.ui'
+## Form generated from reading UI file 'mainWindowqfssok.ui'
 ##
 ## Created by: Qt User Interface Compiler version 6.2.4
 ##
@@ -26,7 +26,7 @@ class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
-        MainWindow.resize(597, 592)
+        MainWindow.resize(578, 622)
         font = QFont()
         font.setPointSize(11)
         MainWindow.setFont(font)
@@ -258,14 +258,14 @@ class Ui_MainWindow(object):
 
         self.horizontalLayout_6.addLayout(self.formLayout_6)
 
+
+        self.verticalLayout_4.addLayout(self.horizontalLayout_6)
+
         self.ctrl_enable_CB = QCheckBox(self.groupBox_2)
         self.ctrl_enable_CB.setObjectName(u"ctrl_enable_CB")
         self.ctrl_enable_CB.setChecked(True)
 
-        self.horizontalLayout_6.addWidget(self.ctrl_enable_CB)
-
-
-        self.verticalLayout_4.addLayout(self.horizontalLayout_6)
+        self.verticalLayout_4.addWidget(self.ctrl_enable_CB)
 
         self.verticalLayout_4.setStretch(0, 1)
         self.verticalLayout_4.setStretch(1, 2)

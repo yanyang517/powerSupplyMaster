@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>597</width>
-    <height>592</height>
+    <width>578</width>
+    <height>622</height>
    </rect>
   </property>
   <property name="font">
@@ -135,7 +135,7 @@
           <property name="title">
            <string>状态控制</string>
           </property>
-          <layout class="QVBoxLayout" name="verticalLayout_4" stretch="1,2,0,0">
+          <layout class="QVBoxLayout" name="verticalLayout_4" stretch="1,2,0,0,0">
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_3">
              <property name="spacing">
@@ -368,17 +368,17 @@
                </item>
               </layout>
              </item>
-             <item>
-              <widget class="QCheckBox" name="ctrl_enable_CB">
-               <property name="text">
-                <string>控制使能</string>
-               </property>
-               <property name="checked">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
             </layout>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="ctrl_enable_CB">
+             <property name="text">
+              <string>控制使能</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
            </item>
           </layout>
          </widget>
