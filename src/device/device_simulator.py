@@ -133,7 +133,7 @@ class SCPISimulator:
     
     async def execute_scpi_command(self, command: str) -> str:
         """执行 SCPI 命令并返回响应"""
-        cmd = command.upper().strip()
+        cmd = command.strip()
         
         # 通用命令
         if cmd == '*IDN?':
@@ -146,10 +146,13 @@ class SCPISimulator:
             return self.handle_system_command(cmd)
         
         # 电压相关命令
-        elif cmd == 'VOLT?':
-            voltage = self.voltage + random.uniform(-0.1, 0.1)
+        elif cmd == 'MEASure:VOLTage?':
+            if random.choice([True, False]):
+                voltage = self.voltage + random.uniform(-0.1, 0.1)
+            else:
+                voltage = self.voltage
             return f"{voltage:.2f}"
-        elif cmd.startswith('VOLT '):
+        elif cmd.startswith('VOLTage '):
             voltage = float(cmd.split()[1])
             return self.set_voltage(voltage)
         elif cmd == 'VOLT:PROT?':
@@ -159,8 +162,8 @@ class SCPISimulator:
             return self.set_max_voltage(max_volt)
         
         # 电流相关命令
-        elif cmd == 'CURR?':
-            self.current = math.sin(time.time()) * self.max_current
+        elif cmd == 'MEASure:CURRent?':
+            self.current = (math.sin(time.time()) + 1) / 2 * self.max_current
             return f"{self.current:.3f}"
         elif cmd.startswith('CURR '):
             current = float(cmd.split()[1])
