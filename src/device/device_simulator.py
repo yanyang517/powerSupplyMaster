@@ -163,7 +163,7 @@ class SCPISimulator:
         
         # 电流相关命令
         elif cmd == 'MEASure:CURRent?':
-            self.current = math.sin(time.time()) * self.max_current
+            self.current = (math.sin(time.time()) + 1) / 2 * self.max_current
             return f"{self.current:.3f}"
         elif cmd.startswith('CURR '):
             current = float(cmd.split()[1])
