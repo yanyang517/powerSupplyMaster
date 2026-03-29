@@ -225,7 +225,7 @@ class SCPISimulator:
         self.voltage = voltage
         self.power = self.voltage * self.current
         logger.info(f"Voltage set to: {voltage:.2f}V")
-        return 'OK'
+        return None
     
     def set_current(self, current: float) -> str:
         """设置电流"""
@@ -235,7 +235,7 @@ class SCPISimulator:
         self.current = current
         self.power = self.voltage * self.current
         logger.info(f"Current set to: {current:.2f}A")
-        return 'OK'
+        return None
     
     def set_max_voltage(self, max_voltage: float) -> str:
         """设置最大电压保护"""
@@ -244,7 +244,7 @@ class SCPISimulator:
         
         self.max_voltage = max_voltage
         logger.info(f"Max voltage limit set to: {max_voltage:.3f}V")
-        return 'OK'
+        return None
     
     def set_max_current(self, max_current: float) -> str:
         """设置最大电流保护"""
@@ -253,13 +253,13 @@ class SCPISimulator:
         
         self.max_current = max_current
         logger.info(f"Max current limit set to: {max_current:.3f}A")
-        return 'OK'
+        return None
     
     def set_output(self, enabled: bool) -> str:
         """控制输出开关"""
         self.output_enabled = enabled
         logger.info(f"Output {'enabled' if enabled else 'disabled'}")
-        return 'OK'
+        return None
     
     def get_status(self) -> str:
         """获取设备状态"""
