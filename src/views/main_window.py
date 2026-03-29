@@ -45,7 +45,7 @@ class MainWindow(QMainWindow):
         self.connect_signal_slots()
 
         self.floating_window = FloatingWindow()
-        # self.floating_window.show()
+        self.floating_window.show()
 
         self._voltage_is_updating = False
         self._voltage_is_updateing_by_present = False
