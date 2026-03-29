@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>578</width>
+    <width>591</width>
     <height>622</height>
    </rect>
   </property>
@@ -23,10 +23,10 @@
     <item>
      <widget class="QTabWidget" name="tabWidget">
       <property name="tabPosition">
-       <enum>QTabWidget::North</enum>
+       <enum>QTabWidget::TabPosition::North</enum>
       </property>
       <property name="tabShape">
-       <enum>QTabWidget::Triangular</enum>
+       <enum>QTabWidget::TabShape::Triangular</enum>
       </property>
       <property name="currentIndex">
        <number>0</number>
@@ -135,7 +135,7 @@
           <property name="title">
            <string>状态控制</string>
           </property>
-          <layout class="QVBoxLayout" name="verticalLayout_4" stretch="1,2,0,0,0">
+          <layout class="QVBoxLayout" name="verticalLayout_4" stretch="1,2,0,0">
            <item>
             <layout class="QHBoxLayout" name="horizontalLayout_3">
              <property name="spacing">
@@ -176,13 +176,13 @@
                    <string>当前电压</string>
                   </property>
                   <property name="frameShape">
-                   <enum>QFrame::NoFrame</enum>
+                   <enum>QFrame::Shape::NoFrame</enum>
                   </property>
                   <property name="text">
                    <string>12.00 V</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -209,13 +209,13 @@
                    <string>当前电流</string>
                   </property>
                   <property name="frameShape">
-                   <enum>QFrame::NoFrame</enum>
+                   <enum>QFrame::Shape::NoFrame</enum>
                   </property>
                   <property name="text">
                    <string>0.00 A</string>
                   </property>
                   <property name="alignment">
-                   <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                   <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                   </property>
                  </widget>
                 </item>
@@ -237,10 +237,10 @@
                   <item>
                    <spacer name="horizontalSpacer">
                     <property name="orientation">
-                     <enum>Qt::Horizontal</enum>
+                     <enum>Qt::Orientation::Horizontal</enum>
                     </property>
                     <property name="sizeType">
-                     <enum>QSizePolicy::Preferred</enum>
+                     <enum>QSizePolicy::Policy::Fixed</enum>
                     </property>
                     <property name="sizeHint" stdset="0">
                      <size>
@@ -259,14 +259,39 @@
                      <double>0.100000000000000</double>
                     </property>
                     <property name="stepType">
-                     <enum>QAbstractSpinBox::DefaultStepType</enum>
+                     <enum>QAbstractSpinBox::StepType::DefaultStepType</enum>
+                    </property>
+                    <property name="value">
+                     <double>12.000000000000000</double>
                     </property>
                    </widget>
+                  </item>
+                  <item>
+                   <spacer name="horizontalSpacer_5">
+                    <property name="orientation">
+                     <enum>Qt::Orientation::Horizontal</enum>
+                    </property>
+                    <property name="sizeType">
+                     <enum>QSizePolicy::Policy::Fixed</enum>
+                    </property>
+                    <property name="sizeHint" stdset="0">
+                     <size>
+                      <width>40</width>
+                      <height>20</height>
+                     </size>
+                    </property>
+                   </spacer>
                   </item>
                  </layout>
                 </item>
                 <item>
                  <widget class="QDial" name="voltage_dial">
+                  <property name="maximum">
+                   <number>2000</number>
+                  </property>
+                  <property name="value">
+                   <number>1200</number>
+                  </property>
                   <property name="notchesVisible">
                    <bool>false</bool>
                   </property>
@@ -280,16 +305,63 @@
                <property name="title">
                 <string>输出开关</string>
                </property>
-               <layout class="QVBoxLayout" name="verticalLayout_3">
+               <layout class="QHBoxLayout" name="horizontalLayout_11">
+                <item>
+                 <spacer name="horizontalSpacer_2">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Horizontal</enum>
+                  </property>
+                  <property name="sizeType">
+                   <enum>QSizePolicy::Policy::Fixed</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>40</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
                 <item>
                  <widget class="QPushButton" name="ouput_ctrl_Btn">
+                  <property name="sizePolicy">
+                   <sizepolicy hsizetype="Minimum" vsizetype="Fixed">
+                    <horstretch>0</horstretch>
+                    <verstretch>0</verstretch>
+                   </sizepolicy>
+                  </property>
+                  <property name="minimumSize">
+                   <size>
+                    <width>100</width>
+                    <height>100</height>
+                   </size>
+                  </property>
+                  <property name="toolTip">
+                   <string>输出开关</string>
+                  </property>
                   <property name="text">
-                   <string>PushButton</string>
+                   <string>开关</string>
                   </property>
                   <property name="checkable">
                    <bool>true</bool>
                   </property>
                  </widget>
+                </item>
+                <item>
+                 <spacer name="horizontalSpacer_4">
+                  <property name="orientation">
+                   <enum>Qt::Orientation::Horizontal</enum>
+                  </property>
+                  <property name="sizeType">
+                   <enum>QSizePolicy::Policy::Fixed</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>40</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
                 </item>
                </layout>
               </widget>
@@ -315,6 +387,9 @@
                  <property name="singleStep">
                   <double>0.100000000000000</double>
                  </property>
+                 <property name="value">
+                  <double>20.000000000000000</double>
+                 </property>
                 </widget>
                </item>
               </layout>
@@ -335,6 +410,9 @@
                  </property>
                  <property name="singleStep">
                   <double>0.100000000000000</double>
+                 </property>
+                 <property name="value">
+                  <double>10.000000000000000</double>
                  </property>
                 </widget>
                </item>
@@ -369,16 +447,6 @@
               </layout>
              </item>
             </layout>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="ctrl_enable_CB">
-             <property name="text">
-              <string>控制使能</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
            </item>
           </layout>
          </widget>
@@ -550,7 +618,7 @@
                  <item row="0" column="1">
                   <widget class="QSpinBox" name="spinBox">
                    <property name="alignment">
-                    <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+                    <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                    </property>
                    <property name="suffix">
                     <string>%</string>
@@ -559,7 +627,7 @@
                     <number>100</number>
                    </property>
                    <property name="stepType">
-                    <enum>QAbstractSpinBox::DefaultStepType</enum>
+                    <enum>QAbstractSpinBox::StepType::DefaultStepType</enum>
                    </property>
                    <property name="value">
                     <number>10</number>
@@ -591,7 +659,7 @@
              <item>
               <spacer name="horizontalSpacer_3">
                <property name="orientation">
-                <enum>Qt::Horizontal</enum>
+                <enum>Qt::Orientation::Horizontal</enum>
                </property>
                <property name="sizeHint" stdset="0">
                 <size>
@@ -609,7 +677,7 @@
         <item>
          <spacer name="verticalSpacer">
           <property name="orientation">
-           <enum>Qt::Vertical</enum>
+           <enum>Qt::Orientation::Vertical</enum>
           </property>
           <property name="sizeHint" stdset="0">
            <size>

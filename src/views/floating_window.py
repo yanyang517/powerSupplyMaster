@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QWidget, QMenu, QMainWindow
 from PySide6.QtCore import Qt, Signal, Slot
 
-from .ui.floating_classic import Ui_Dialog
+from .ui.floating_classic_ui import Ui_Dialog
 
 
 class FloatingWindow(QMainWindow):
@@ -29,7 +29,7 @@ class FloatingWindow(QMainWindow):
         self._drag_pos = None
         
         # Set fixed size to match the UI design
-        self.setFixedSize(450, 117)
+        self.setFixedSize(407, 81)
 
         self.repaint()
 

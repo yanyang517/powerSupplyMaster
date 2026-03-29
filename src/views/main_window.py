@@ -14,7 +14,7 @@ from PySide6.QtCore import Slot, QTimer, Qt, QPointF
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QAbstractSeries, QValueAxis
 from PySide6.QtGui import QColor, QFont, QPainter
 
-from .ui.mainWindow import Ui_MainWindow
+from .ui.mainWindow_ui import Ui_MainWindow
 from .floating_window import FloatingWindow
 
 # Configure logging
