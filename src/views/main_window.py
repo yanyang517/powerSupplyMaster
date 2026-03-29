@@ -305,8 +305,8 @@ class MainWindow(QMainWindow):
         # if len(self.time_data) > self.max_data_points:
         #     self.time_data.pop(0)
         
-        # x_min = self.current_data_count - 100 if self.current_data_count > 100 else 0
-        # self.axis_x.setRange(x_min, self.current_data_count)
+        x_min = self.current_data_count - 100 if self.current_data_count > 100 else 0
+        self.axis_x.setRange(x_min, self.current_data_count)
         # Update series data using QPointF
         # voltage_points = [QPointF(i, v) for i, v in enumerate(self.voltage_data)]
         # current_points = [QPointF(i, c) for i, c in enumerate(self.current_data)]
