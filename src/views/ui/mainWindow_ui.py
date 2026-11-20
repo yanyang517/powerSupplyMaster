@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 
 ################################################################################
-## Form generated from reading UI file 'mainWindowqfssok.ui'
+## Form generated from reading UI file 'mainWindow.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.2.4
+## Created by: Qt User Interface Compiler version 6.10.2
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -26,7 +26,7 @@ class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
         if not MainWindow.objectName():
             MainWindow.setObjectName(u"MainWindow")
-        MainWindow.resize(578, 622)
+        MainWindow.resize(591, 622)
         font = QFont()
         font.setPointSize(11)
         MainWindow.setFont(font)
@@ -36,8 +36,8 @@ class Ui_MainWindow(object):
         self.verticalLayout_6.setObjectName(u"verticalLayout_6")
         self.tabWidget = QTabWidget(self.centralwidget)
         self.tabWidget.setObjectName(u"tabWidget")
-        self.tabWidget.setTabPosition(QTabWidget.North)
-        self.tabWidget.setTabShape(QTabWidget.Triangular)
+        self.tabWidget.setTabPosition(QTabWidget.TabPosition.North)
+        self.tabWidget.setTabShape(QTabWidget.TabShape.Triangular)
         self.tab_control = QWidget()
         self.tab_control.setObjectName(u"tab_control")
         self.verticalLayout_5 = QVBoxLayout(self.tab_control)
@@ -51,12 +51,12 @@ class Ui_MainWindow(object):
         self.label = QLabel(self.groupBox)
         self.label.setObjectName(u"label")
 
-        self.formLayout_2.setWidget(0, QFormLayout.LabelRole, self.label)
+        self.formLayout_2.setWidget(0, QFormLayout.ItemRole.LabelRole, self.label)
 
         self.com_num_comboBox = QComboBox(self.groupBox)
         self.com_num_comboBox.setObjectName(u"com_num_comboBox")
 
-        self.formLayout_2.setWidget(0, QFormLayout.FieldRole, self.com_num_comboBox)
+        self.formLayout_2.setWidget(0, QFormLayout.ItemRole.FieldRole, self.com_num_comboBox)
 
 
         self.horizontalLayout.addLayout(self.formLayout_2)
@@ -66,7 +66,7 @@ class Ui_MainWindow(object):
         self.label_2 = QLabel(self.groupBox)
         self.label_2.setObjectName(u"label_2")
 
-        self.formLayout.setWidget(0, QFormLayout.LabelRole, self.label_2)
+        self.formLayout.setWidget(0, QFormLayout.ItemRole.LabelRole, self.label_2)
 
         self.baudrate_comboBox = QComboBox(self.groupBox)
         self.baudrate_comboBox.addItem("")
@@ -75,7 +75,7 @@ class Ui_MainWindow(object):
         self.baudrate_comboBox.addItem("")
         self.baudrate_comboBox.setObjectName(u"baudrate_comboBox")
 
-        self.formLayout.setWidget(0, QFormLayout.FieldRole, self.baudrate_comboBox)
+        self.formLayout.setWidget(0, QFormLayout.ItemRole.FieldRole, self.baudrate_comboBox)
 
 
         self.horizontalLayout.addLayout(self.formLayout)
@@ -124,8 +124,8 @@ class Ui_MainWindow(object):
         font1 = QFont()
         font1.setPointSize(36)
         self.volatage_label.setFont(font1)
-        self.volatage_label.setFrameShape(QFrame.NoFrame)
-        self.volatage_label.setAlignment(Qt.AlignRight|Qt.AlignTrailing|Qt.AlignVCenter)
+        self.volatage_label.setFrameShape(QFrame.Shape.NoFrame)
+        self.volatage_label.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignTrailing|Qt.AlignmentFlag.AlignVCenter)
 
         self.horizontalLayout_8.addWidget(self.volatage_label)
 
@@ -140,8 +140,8 @@ class Ui_MainWindow(object):
         self.current_label = QLabel(self.groupBox_3)
         self.current_label.setObjectName(u"current_label")
         self.current_label.setFont(font1)
-        self.current_label.setFrameShape(QFrame.NoFrame)
-        self.current_label.setAlignment(Qt.AlignRight|Qt.AlignTrailing|Qt.AlignVCenter)
+        self.current_label.setFrameShape(QFrame.Shape.NoFrame)
+        self.current_label.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignTrailing|Qt.AlignmentFlag.AlignVCenter)
 
         self.horizontalLayout_7.addWidget(self.current_label)
 
@@ -159,22 +159,29 @@ class Ui_MainWindow(object):
         self.verticalLayout_2.setObjectName(u"verticalLayout_2")
         self.horizontalLayout_2 = QHBoxLayout()
         self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
-        self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Preferred, QSizePolicy.Minimum)
+        self.horizontalSpacer = QSpacerItem(40, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
 
         self.horizontalLayout_2.addItem(self.horizontalSpacer)
 
         self.voltage_spinBox = QDoubleSpinBox(self.groupBox1)
         self.voltage_spinBox.setObjectName(u"voltage_spinBox")
         self.voltage_spinBox.setSingleStep(0.100000000000000)
-        self.voltage_spinBox.setStepType(QAbstractSpinBox.DefaultStepType)
+        self.voltage_spinBox.setStepType(QAbstractSpinBox.StepType.DefaultStepType)
+        self.voltage_spinBox.setValue(12.000000000000000)
 
         self.horizontalLayout_2.addWidget(self.voltage_spinBox)
+
+        self.horizontalSpacer_5 = QSpacerItem(40, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+
+        self.horizontalLayout_2.addItem(self.horizontalSpacer_5)
 
 
         self.verticalLayout_2.addLayout(self.horizontalLayout_2)
 
         self.voltage_dial = QDial(self.groupBox1)
         self.voltage_dial.setObjectName(u"voltage_dial")
+        self.voltage_dial.setMaximum(2000)
+        self.voltage_dial.setValue(1200)
         self.voltage_dial.setNotchesVisible(False)
 
         self.verticalLayout_2.addWidget(self.voltage_dial)
@@ -184,13 +191,27 @@ class Ui_MainWindow(object):
 
         self.groupBox2 = QGroupBox(self.groupBox_2)
         self.groupBox2.setObjectName(u"groupBox2")
-        self.verticalLayout_3 = QVBoxLayout(self.groupBox2)
-        self.verticalLayout_3.setObjectName(u"verticalLayout_3")
+        self.horizontalLayout_11 = QHBoxLayout(self.groupBox2)
+        self.horizontalLayout_11.setObjectName(u"horizontalLayout_11")
+        self.horizontalSpacer_2 = QSpacerItem(40, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+
+        self.horizontalLayout_11.addItem(self.horizontalSpacer_2)
+
         self.ouput_ctrl_Btn = QPushButton(self.groupBox2)
         self.ouput_ctrl_Btn.setObjectName(u"ouput_ctrl_Btn")
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.ouput_ctrl_Btn.sizePolicy().hasHeightForWidth())
+        self.ouput_ctrl_Btn.setSizePolicy(sizePolicy)
+        self.ouput_ctrl_Btn.setMinimumSize(QSize(100, 100))
         self.ouput_ctrl_Btn.setCheckable(True)
 
-        self.verticalLayout_3.addWidget(self.ouput_ctrl_Btn)
+        self.horizontalLayout_11.addWidget(self.ouput_ctrl_Btn)
+
+        self.horizontalSpacer_4 = QSpacerItem(40, 20, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+
+        self.horizontalLayout_11.addItem(self.horizontalSpacer_4)
 
 
         self.horizontalLayout_4.addWidget(self.groupBox2)
@@ -205,13 +226,14 @@ class Ui_MainWindow(object):
         self.label_9 = QLabel(self.groupBox_2)
         self.label_9.setObjectName(u"label_9")
 
-        self.formLayout_4.setWidget(0, QFormLayout.LabelRole, self.label_9)
+        self.formLayout_4.setWidget(0, QFormLayout.ItemRole.LabelRole, self.label_9)
 
         self.max_voltage_spinbox = QDoubleSpinBox(self.groupBox_2)
         self.max_voltage_spinbox.setObjectName(u"max_voltage_spinbox")
         self.max_voltage_spinbox.setSingleStep(0.100000000000000)
+        self.max_voltage_spinbox.setValue(20.000000000000000)
 
-        self.formLayout_4.setWidget(0, QFormLayout.FieldRole, self.max_voltage_spinbox)
+        self.formLayout_4.setWidget(0, QFormLayout.ItemRole.FieldRole, self.max_voltage_spinbox)
 
 
         self.horizontalLayout_5.addLayout(self.formLayout_4)
@@ -221,13 +243,14 @@ class Ui_MainWindow(object):
         self.label_8 = QLabel(self.groupBox_2)
         self.label_8.setObjectName(u"label_8")
 
-        self.formLayout_3.setWidget(0, QFormLayout.LabelRole, self.label_8)
+        self.formLayout_3.setWidget(0, QFormLayout.ItemRole.LabelRole, self.label_8)
 
         self.max_current_spinBox = QDoubleSpinBox(self.groupBox_2)
         self.max_current_spinBox.setObjectName(u"max_current_spinBox")
         self.max_current_spinBox.setSingleStep(0.100000000000000)
+        self.max_current_spinBox.setValue(10.000000000000000)
 
-        self.formLayout_3.setWidget(0, QFormLayout.FieldRole, self.max_current_spinBox)
+        self.formLayout_3.setWidget(0, QFormLayout.ItemRole.FieldRole, self.max_current_spinBox)
 
 
         self.horizontalLayout_5.addLayout(self.formLayout_3)
@@ -242,30 +265,24 @@ class Ui_MainWindow(object):
         self.label_7 = QLabel(self.groupBox_2)
         self.label_7.setObjectName(u"label_7")
 
-        self.formLayout_6.setWidget(0, QFormLayout.LabelRole, self.label_7)
+        self.formLayout_6.setWidget(0, QFormLayout.ItemRole.LabelRole, self.label_7)
 
         self.device_info_lineEdit = QLineEdit(self.groupBox_2)
         self.device_info_lineEdit.setObjectName(u"device_info_lineEdit")
-        sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        sizePolicy.setHorizontalStretch(0)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.device_info_lineEdit.sizePolicy().hasHeightForWidth())
-        self.device_info_lineEdit.setSizePolicy(sizePolicy)
+        sizePolicy1 = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        sizePolicy1.setHorizontalStretch(0)
+        sizePolicy1.setVerticalStretch(0)
+        sizePolicy1.setHeightForWidth(self.device_info_lineEdit.sizePolicy().hasHeightForWidth())
+        self.device_info_lineEdit.setSizePolicy(sizePolicy1)
         self.device_info_lineEdit.setReadOnly(True)
 
-        self.formLayout_6.setWidget(0, QFormLayout.FieldRole, self.device_info_lineEdit)
+        self.formLayout_6.setWidget(0, QFormLayout.ItemRole.FieldRole, self.device_info_lineEdit)
 
 
         self.horizontalLayout_6.addLayout(self.formLayout_6)
 
 
         self.verticalLayout_4.addLayout(self.horizontalLayout_6)
-
-        self.ctrl_enable_CB = QCheckBox(self.groupBox_2)
-        self.ctrl_enable_CB.setObjectName(u"ctrl_enable_CB")
-        self.ctrl_enable_CB.setChecked(True)
-
-        self.verticalLayout_4.addWidget(self.ctrl_enable_CB)
 
         self.verticalLayout_4.setStretch(0, 1)
         self.verticalLayout_4.setStretch(1, 2)
@@ -314,22 +331,22 @@ class Ui_MainWindow(object):
         self.label_6 = QLabel(self.groupBox_6)
         self.label_6.setObjectName(u"label_6")
 
-        self.formLayout_7.setWidget(0, QFormLayout.LabelRole, self.label_6)
+        self.formLayout_7.setWidget(0, QFormLayout.ItemRole.LabelRole, self.label_6)
 
         self.label_10 = QLabel(self.groupBox_6)
         self.label_10.setObjectName(u"label_10")
 
-        self.formLayout_7.setWidget(1, QFormLayout.LabelRole, self.label_10)
+        self.formLayout_7.setWidget(1, QFormLayout.ItemRole.LabelRole, self.label_10)
 
         self.pushButton_4 = QPushButton(self.groupBox_6)
         self.pushButton_4.setObjectName(u"pushButton_4")
 
-        self.formLayout_7.setWidget(1, QFormLayout.FieldRole, self.pushButton_4)
+        self.formLayout_7.setWidget(1, QFormLayout.ItemRole.FieldRole, self.pushButton_4)
 
         self.pushButton_8 = QPushButton(self.groupBox_6)
         self.pushButton_8.setObjectName(u"pushButton_8")
 
-        self.formLayout_7.setWidget(0, QFormLayout.FieldRole, self.pushButton_8)
+        self.formLayout_7.setWidget(0, QFormLayout.ItemRole.FieldRole, self.pushButton_8)
 
 
         self.horizontalLayout_9.addWidget(self.groupBox_6)
@@ -341,22 +358,22 @@ class Ui_MainWindow(object):
         self.label_15 = QLabel(self.groupBox_7)
         self.label_15.setObjectName(u"label_15")
 
-        self.formLayout_9.setWidget(0, QFormLayout.LabelRole, self.label_15)
+        self.formLayout_9.setWidget(0, QFormLayout.ItemRole.LabelRole, self.label_15)
 
         self.label_16 = QLabel(self.groupBox_7)
         self.label_16.setObjectName(u"label_16")
 
-        self.formLayout_9.setWidget(1, QFormLayout.LabelRole, self.label_16)
+        self.formLayout_9.setWidget(1, QFormLayout.ItemRole.LabelRole, self.label_16)
 
         self.pushButton_6 = QPushButton(self.groupBox_7)
         self.pushButton_6.setObjectName(u"pushButton_6")
 
-        self.formLayout_9.setWidget(1, QFormLayout.FieldRole, self.pushButton_6)
+        self.formLayout_9.setWidget(1, QFormLayout.ItemRole.FieldRole, self.pushButton_6)
 
         self.pushButton_5 = QPushButton(self.groupBox_7)
         self.pushButton_5.setObjectName(u"pushButton_5")
 
-        self.formLayout_9.setWidget(0, QFormLayout.FieldRole, self.pushButton_5)
+        self.formLayout_9.setWidget(0, QFormLayout.ItemRole.FieldRole, self.pushButton_5)
 
 
         self.horizontalLayout_9.addWidget(self.groupBox_7)
@@ -374,16 +391,16 @@ class Ui_MainWindow(object):
         self.label_17 = QLabel(self.groupBox_5)
         self.label_17.setObjectName(u"label_17")
 
-        self.formLayout_8.setWidget(0, QFormLayout.LabelRole, self.label_17)
+        self.formLayout_8.setWidget(0, QFormLayout.ItemRole.LabelRole, self.label_17)
 
         self.spinBox = QSpinBox(self.groupBox_5)
         self.spinBox.setObjectName(u"spinBox")
-        self.spinBox.setAlignment(Qt.AlignRight|Qt.AlignTrailing|Qt.AlignVCenter)
+        self.spinBox.setAlignment(Qt.AlignmentFlag.AlignRight|Qt.AlignmentFlag.AlignTrailing|Qt.AlignmentFlag.AlignVCenter)
         self.spinBox.setMaximum(100)
-        self.spinBox.setStepType(QAbstractSpinBox.DefaultStepType)
+        self.spinBox.setStepType(QAbstractSpinBox.StepType.DefaultStepType)
         self.spinBox.setValue(10)
 
-        self.formLayout_8.setWidget(0, QFormLayout.FieldRole, self.spinBox)
+        self.formLayout_8.setWidget(0, QFormLayout.ItemRole.FieldRole, self.spinBox)
 
 
         self.verticalLayout.addLayout(self.formLayout_8)
@@ -393,12 +410,12 @@ class Ui_MainWindow(object):
         self.label_18 = QLabel(self.groupBox_5)
         self.label_18.setObjectName(u"label_18")
 
-        self.formLayout_5.setWidget(0, QFormLayout.LabelRole, self.label_18)
+        self.formLayout_5.setWidget(0, QFormLayout.ItemRole.LabelRole, self.label_18)
 
         self.pushButton_7 = QPushButton(self.groupBox_5)
         self.pushButton_7.setObjectName(u"pushButton_7")
 
-        self.formLayout_5.setWidget(0, QFormLayout.FieldRole, self.pushButton_7)
+        self.formLayout_5.setWidget(0, QFormLayout.ItemRole.FieldRole, self.pushButton_7)
 
 
         self.verticalLayout.addLayout(self.formLayout_5)
@@ -406,7 +423,7 @@ class Ui_MainWindow(object):
 
         self.horizontalLayout_10.addLayout(self.verticalLayout)
 
-        self.horizontalSpacer_3 = QSpacerItem(40, 20, QSizePolicy.Expanding, QSizePolicy.Minimum)
+        self.horizontalSpacer_3 = QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
         self.horizontalLayout_10.addItem(self.horizontalSpacer_3)
 
@@ -418,7 +435,7 @@ class Ui_MainWindow(object):
 
         self.verticalLayout_8.addWidget(self.groupBox_5)
 
-        self.verticalSpacer = QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        self.verticalSpacer = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
 
         self.verticalLayout_8.addItem(self.verticalSpacer)
 
@@ -470,13 +487,15 @@ class Ui_MainWindow(object):
         self.groupBox1.setTitle(QCoreApplication.translate("MainWindow", u"\u8f93\u51fa\u7535\u538b", None))
         self.voltage_spinBox.setSuffix(QCoreApplication.translate("MainWindow", u"V", None))
         self.groupBox2.setTitle(QCoreApplication.translate("MainWindow", u"\u8f93\u51fa\u5f00\u5173", None))
-        self.ouput_ctrl_Btn.setText(QCoreApplication.translate("MainWindow", u"PushButton", None))
+#if QT_CONFIG(tooltip)
+        self.ouput_ctrl_Btn.setToolTip(QCoreApplication.translate("MainWindow", u"\u8f93\u51fa\u5f00\u5173", None))
+#endif // QT_CONFIG(tooltip)
+        self.ouput_ctrl_Btn.setText(QCoreApplication.translate("MainWindow", u"\u5f00\u5173", None))
         self.label_9.setText(QCoreApplication.translate("MainWindow", u"\u6700\u5927\u8f93\u51fa\u7535\u538b:", None))
         self.max_voltage_spinbox.setSuffix(QCoreApplication.translate("MainWindow", u"V", None))
         self.label_8.setText(QCoreApplication.translate("MainWindow", u"\u6700\u5927\u8f93\u51fa\u7535\u6d41:", None))
         self.max_current_spinBox.setSuffix(QCoreApplication.translate("MainWindow", u"A", None))
         self.label_7.setText(QCoreApplication.translate("MainWindow", u"\u8bbe\u5907\u4fe1\u606f:", None))
-        self.ctrl_enable_CB.setText(QCoreApplication.translate("MainWindow", u"\u63a7\u5236\u4f7f\u80fd", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_control), QCoreApplication.translate("MainWindow", u"\u63a7\u5236\u9762\u677f", None))
         self.groupBox_8.setTitle(QCoreApplication.translate("MainWindow", u"\u663e\u793a\u6ce2\u5f62", None))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_wave), QCoreApplication.translate("MainWindow", u"\u6ce2\u5f62", None))

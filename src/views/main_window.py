@@ -14,7 +14,7 @@ from PySide6.QtCore import Slot, QTimer, Qt, QPointF
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QAbstractSeries, QValueAxis
 from PySide6.QtGui import QColor, QFont, QPainter
 
-from .ui.mainWindow import Ui_MainWindow
+from .ui.mainWindow_ui import Ui_MainWindow
 from .floating_window import FloatingWindow
 
 # Configure logging
@@ -45,7 +45,7 @@ class MainWindow(QMainWindow):
         self.connect_signal_slots()
 
         self.floating_window = FloatingWindow()
-        # self.floating_window.show()
+        self.floating_window.show()
 
         self._voltage_is_updating = False
         self._voltage_is_updateing_by_present = False

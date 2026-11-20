@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import QWidget, QMenu, QMainWindow
 from PySide6.QtCore import Qt, Signal, Slot
 
-from .ui.floating_classic import Ui_Dialog
+from .ui.floating_classic_ui import Ui_Dialog
 
 
 class FloatingWindow(QMainWindow):
@@ -18,8 +18,7 @@ class FloatingWindow(QMainWindow):
         self.current_value = 0.0
         self.output_value = True
 
-        self._transparency = 0.1
-
+        self._transparency = 0.2
 
         self.setWindowOpacity(self._transparency)
 
@@ -29,7 +28,13 @@ class FloatingWindow(QMainWindow):
         self._drag_pos = None
         
         # Set fixed size to match the UI design
-        self.setFixedSize(450, 117)
+        self.setFixedSize(407, 81)
+
+        # Set distinct colors for voltage and current labels
+        # Voltage: Bright Blue - highly visible on both white and black backgrounds
+        self.ui.voltage_label.setStyleSheet("color: rgb(0, 123, 255); font-weight: bold;")
+        # Current: Teal/Cyan - visible on both white and black backgrounds
+        self.ui.current_label.setStyleSheet("color: rgb(0, 139, 139); font-weight: bold;")
 
         self.repaint()
 
