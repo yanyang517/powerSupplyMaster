@@ -7,6 +7,7 @@ without a QApplication; only available_rects()/screen_name() touch Qt.
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 
 from PySide6.QtGui import QGuiApplication, QScreen
@@ -30,7 +31,11 @@ def geometry_file_path(module_file: str = __file__) -> Path:
     """Absolute path of the geometry file, independent of the process cwd.
 
     This module lives in <repo>/src/views, so two levels up is the repo root.
+    When frozen by PyInstaller the module path points inside the bundle, so the
+    config sits next to the executable instead (writable, survives upgrades).
     """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / CONFIG_DIR_NAME / GEOMETRY_FILE_NAME
     return Path(module_file).resolve().parents[2] / CONFIG_DIR_NAME / GEOMETRY_FILE_NAME
 
 
