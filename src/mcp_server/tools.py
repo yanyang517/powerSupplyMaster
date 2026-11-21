@@ -9,7 +9,7 @@ from typing import Any, Dict, Optional
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
-from .psu_client import PsuClient, PsuUnavailableError
+from .psu_client import PsuAccessDeniedError, PsuClient, PsuUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,11 @@ async def _request(request_type: str, **fields: Any) -> Dict[str, Any]:
     except PsuUnavailableError as e:
         raise ToolError(
             f"电源控制应用未运行或连接中断。请先启动 powerSupplyMaster（默认监听 127.0.0.1:8888），再重试。({e})"
+        )
+    except PsuAccessDeniedError as e:
+        raise ToolError(
+            "电源控制应用拒绝了本桥的登录：该 client_id 未登记，且当前没有可批准的界面会话。"
+            f"请在 powerSupplyMaster 的界面中确认准入，或把 client_id 加入登记表。({e})"
         )
     if "status" not in response and "error" in response:
         raise ToolError(f"server 处理失败: {response.get('error')} {response.get('message', '')}".strip())

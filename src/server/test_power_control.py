@@ -9,13 +9,22 @@ import pytest
 
 from .dispatcher import dispatcher
 from .request_handles import *  # noqa: F401,F403  确保 handler 完成注册
+from .registry import Principal, Tier
 from .runtime_config import runtime_config
+from .session import Session
 from device.scpi_power_supply import SCPI_PowerSupply
 
 
-def dispatch(request_type: str, **fields):
+def make_session(client_id: str = "tester", tier: Tier = Tier.L2) -> Session:
+    s = Session(peer="unit-test")
+    s.authenticate(Principal(client_id, tier, client_id))
+    return s
+
+
+def dispatch(request_type: str, session: Session | None = None, **fields):
+    """默认以已登录 L2 身份调用，使本文件专注于设备行为而非权限。"""
     raw = json.dumps({"type": request_type, **fields})
-    return asyncio.run(dispatcher.dispatch(raw))
+    return asyncio.run(dispatcher.dispatch(raw, session or make_session()))
 
 
 @pytest.fixture

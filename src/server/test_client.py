@@ -26,6 +26,9 @@ from .protocal.protocal import (
     SetMaxVoltageRequest,
 )
 
+# 集成测试身份：需要在服务端登记表里存在（默认 config/clients.json 已带这条）
+CLIENT_ID = "test-client"
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,7 @@ class JsonSocketClient:
     def __init__(self, host: str = '127.0.0.1', port: int = 8888):
         self.host = host
         self.port = port
+        self.client_id = CLIENT_ID
         
 
     async def connect(self) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
@@ -91,6 +95,10 @@ class JsonSocketClient:
         rsp = await self.send_command(self._reader, self._writer, req)
         return rsp
 
+    async def login(self, tier: str = "L2") -> dict:
+        """业务命令之前必须有身份：新门控对未登录连接一律拒绝（echo 除外）。"""
+        return await self.request(LoginRequest(client_id=self.client_id, tier=tier))
+
 @pytest.mark.asyncio
 class TestSocketServer:
     """Test suite for socket server functionality"""
@@ -99,7 +107,7 @@ class TestSocketServer:
         """Test 2: Echo command - returns the same message"""
         client = JsonSocketClient()
         reader, writer = await asyncio.open_connection(client.host, client.port)
-        
+
         try:
             req = EchoRequest(message='Hello, Server!')
             response = await client.send_command(reader, writer, req)
@@ -118,7 +126,8 @@ class TestSocketServer:
         """Test 5: Connect to device command"""
         client = JsonSocketClient()
         reader, writer = await asyncio.open_connection(client.host, client.port)
-        
+        await client.send_command(reader, writer, LoginRequest(client_id=CLIENT_ID, tier="L2"))
+
         try:
             req = OpenDeviceRequest(serial_number='COM8')
             response = await client.send_command(reader, writer, req)
@@ -136,7 +145,8 @@ class TestSocketServer:
         """Test 6: Close device command"""
         client = JsonSocketClient()
         reader, writer = await asyncio.open_connection(client.host, client.port)
-        
+        await client.send_command(reader, writer, LoginRequest(client_id=CLIENT_ID, tier="L2"))
+
         try:
             req = CloseDeviceRequest(device_id='device_id_123')
             response = await client.send_command(reader, writer, req)
@@ -151,7 +161,8 @@ class TestSocketServer:
         """Test 7: Set voltage command"""
         client = JsonSocketClient()
         reader, writer = await asyncio.open_connection(client.host, client.port)
-        
+        await client.send_command(reader, writer, LoginRequest(client_id=CLIENT_ID, tier="L2"))
+
         try:
             req = OpenDeviceRequest(serial_number='COM8')
             response = await client.send_command(reader, writer, req)
@@ -179,37 +190,37 @@ class TestSocketServer:
         finally:
             writer.close()
             await writer.wait_closed()
-    @pytest.mark.skip(reason="Unknown command test needs to be implemented later")
-
     async def test_login_command(self):
         """Test login command"""
         client = JsonSocketClient()
         reader, writer = await asyncio.open_connection(client.host, client.port)
-        
+
         try:
-            req = LoginRequest(username='testuser', password='testpass')
+            req = LoginRequest(client_id=CLIENT_ID, tier='L1')
             response = await client.send_command(reader, writer, req)
             
-            logger.info(f"Request: {{'cmd': 'login', 'username': 'testuser'}}")
+            logger.info(f"Request: {{'cmd': 'login', 'client_id': CLIENT_ID}}")
             logger.info(f"Response: {response}")
             
             assert response['status'] == 'success'
+            # 生效等级取登记表里的值：申请更低等级不会改变登记身份，只有超出时才降格
+            assert response['client_id'] == CLIENT_ID and response['tier'] == 'L2'
             logger.info("✅ Login command test PASSED")
         finally:
             writer.close()
             await writer.wait_closed()
 
-    @pytest.mark.skip(reason="Unknown command test needs to be implemented later")
     async def test_logout_command(self):
         """Test logout command"""
         client = JsonSocketClient()
         reader, writer = await asyncio.open_connection(client.host, client.port)
-        
+        await client.send_command(reader, writer, LoginRequest(client_id=CLIENT_ID, tier="L2"))
+
         try:
-            req = LogoutRequest(session_token='test_session_token_123')
+            req = LogoutRequest()
             response = await client.send_command(reader, writer, req)
             
-            logger.info(f"Request: {{'cmd': 'logout', 'session_token': 'test_session_token_123'}}")
+            logger.info(f"Request: {{'cmd': 'logout'}}")
             logger.info(f"Response: {response}")
             
             assert response['status'] == 'success'
@@ -226,7 +237,8 @@ class TestSocketServer:
         
         client = JsonSocketClient()
         reader, writer = await asyncio.open_connection(client.host, client.port)
-        
+        await client.send_command(reader, writer, LoginRequest(client_id=CLIENT_ID, tier="L2"))
+
         try:
             # Create a request with an unknown command type
             class UnknownRequest(BaseRequest):
@@ -251,6 +263,7 @@ class TestSocketServer:
 async def opened_device():
     client = JsonSocketClient()
     await client.connect()
+    assert (await client.login())['status'] == 'success'
 
     req = OpenDeviceRequest(serial_number='COM8')
     response = await client.request(req)

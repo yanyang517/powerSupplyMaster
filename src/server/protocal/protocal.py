@@ -26,13 +26,28 @@ class EchoRequest(BaseRequest):
 
 # 具体请求类型 - 使用 Literal 作为鉴别器
 class LoginRequest(BaseRequest):
+    """登录即准入申请：client_id 由客户端自报，登记表是准入名单而非凭据库。"""
     type: Literal["login"] = "login"
-    username: str
-    password: str  # 实际应使用 SecretStr
+    client_id: str
+    tier: Literal["L0", "L1", "L2"] = "L0"
+
 
 class LogoutRequest(BaseRequest):
     type: Literal["logout"] = "logout"
-    session_token: str
+
+
+class LeaseStatusRequest(BaseRequest):
+    """谁正在控制这台电源。"""
+    type: Literal["lease_status"] = "lease_status"
+
+
+class ListClientsRequest(BaseRequest):
+    """当前有哪些连接（含未登录）。"""
+    type: Literal["list_clients"] = "list_clients"
+
+
+class ReleaseLeaseRequest(BaseRequest):
+    type: Literal["release_lease"] = "release_lease"
 
 
 class OpenDeviceRequest(BaseRequest):
@@ -118,6 +133,10 @@ RequestUnion = Union[
 
     Annotated[DeviceIdQueryRequest, Tag("device_id_query")],
 
+    Annotated[LeaseStatusRequest, Tag("lease_status")],
+    Annotated[ListClientsRequest, Tag("list_clients")],
+    Annotated[ReleaseLeaseRequest, Tag("release_lease")],
+
 ]
 
 
@@ -138,6 +157,29 @@ class SettingResponse(BaseResponse):
     """setting_query 响应：当前生效的设置类命令限值"""
     max_voltage: float
     max_current: float
+
+
+class LoginResponse(BaseResponse):
+    """登录响应：只表明会话生效等级，不返回任何可复用为凭据的字段。"""
+    client_id: str
+    tier: str
+    reason: str
+
+
+class LeaseStatusResponse(BaseResponse):
+    """控制权状态；holder 为 None 表示无人持有。"""
+    holder: str | None = None
+    tier: str | None = None
+    remaining_seconds: float = 0.0
+    held_seconds: float = 0.0
+    since_last_write_seconds: float = 0.0
+    holder_connected: bool = False
+
+
+class ListClientsResponse(BaseResponse):
+    """连接列表与控制权归属是两份名单，不能混为一份。"""
+    clients: list[dict] = Field(default_factory=list)
+    lease: dict = Field(default_factory=dict)
 
 # schema = RequestUnion.model_json_schema()
 # logger.info("Schema 生成成功，深度正常")

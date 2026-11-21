@@ -3,19 +3,40 @@
 运行方式（在 src 目录下）：python -m pytest mcp_server/test_bridge.py
 """
 import asyncio
+import json
 
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
 from device.scpi_power_supply import SCPI_PowerSupply
+from server.access import set_approval_handler
+from server.registry import ClientRegistry, use_registry
 from server.runtime_config import runtime_config
+from server.session import hub, lease, lease_config
 from server.socket_server import SocketServer
 
 from . import tools
-from .psu_client import PsuClient, PsuUnavailableError
+from .psu_client import PsuAccessDeniedError, PsuClient, PsuUnavailableError
 
 HOST = "127.0.0.1"
 PORT = 18899  # 测试专用端口，避开默认 8888
+
+
+@pytest.fixture(autouse=True)
+def bridge_is_registered(tmp_path):
+    """桥默认以 mcp-bridge/L2 身份登录：给每个用例一份干净的临时登记表与会话状态。"""
+    path = tmp_path / "clients.json"
+    path.write_text(json.dumps({"schema_version": 1, "clients": {
+        "mcp-bridge": {"tier": "L2", "name": "AI 助手 (MCP 桥)"}
+    }}), encoding="utf-8")
+    use_registry(ClientRegistry.load(path))
+    lease.revoke()
+    for s in list(hub):
+        hub.close(s)
+    set_approval_handler(None)
+    yield
+    lease.revoke()
+    set_approval_handler(None)
 
 
 def make_fake_device(monkeypatch, connected=True):
@@ -77,6 +98,27 @@ class TestProtocolClient:
 
         asyncio.run(scenario())
 
+    def test_default_identity_covers_every_bridge_command(self, monkeypatch):
+        """桥的四个工具必须全部落地：默认身份低于 L2 时 set_on_off 会被门控拒掉。"""
+        make_fake_device(monkeypatch)
+
+        async def scenario():
+            srv = await start_psu_server()
+            try:
+                client = PsuClient(host=HOST, port=PORT, timeout=2.0)
+                assert client.tier == "L2", "默认身份应与 set_output 所需的等级一致"
+                for request_type, fields in (("set_voltage", {"value": 12.0}),
+                                             ("set_current", {"value": 1.0}),
+                                             ("set_on_off", {"value": True})):
+                    resp = await client.request(request_type, **fields)
+                    assert resp["status"] == "success", f"{request_type}: {resp.get('message')}"
+                await client._drop_connection()
+            finally:
+                srv.close()
+                await srv.wait_closed()
+
+        asyncio.run(scenario())
+
     def test_lazy_reconnect_after_server_restart(self, monkeypatch):
         make_fake_device(monkeypatch)
 
@@ -109,6 +151,107 @@ class TestProtocolClient:
             client = PsuClient(host=HOST, port=PORT, timeout=0.5)
             with pytest.raises(PsuUnavailableError):
                 await client.request("voltage_query")
+
+        asyncio.run(scenario())
+
+    def test_lease_survives_lazy_reconnect(self, monkeypatch, tmp_path):
+        """控制权按 client_id 存续：桥透明重连后不必重新认领，争用方依旧被拒。"""
+        make_fake_device(monkeypatch)
+        path = tmp_path / "clients.json"
+        path.write_text(json.dumps({"schema_version": 1, "clients": {
+            "mcp-bridge": {"tier": "L1", "name": "AI 助手 (MCP 桥)"},
+            "rival": {"tier": "L1", "name": "争用的另一端"},
+        }}), encoding="utf-8")
+        use_registry(ClientRegistry.load(path))
+
+        async def scenario():
+            client = PsuClient(host=HOST, port=PORT, timeout=2.0)
+            srv1 = await start_psu_server()
+            assert (await client.request("set_voltage", value=12.0))["status"] == "success"
+            srv1.close()
+            client._writer.transport.abort()
+            await asyncio.sleep(0.1)
+
+            srv2 = await start_psu_server()
+            rival = PsuClient(host=HOST, port=PORT, timeout=2.0, client_id="rival")
+            try:
+                status = await client.request("lease_status")
+                assert status["holder"] == "mcp-bridge" and status["holder_connected"] is True
+                assert (await client.request("set_voltage", value=13.0))["status"] == "success"
+                denied = await rival.request("set_voltage", value=14.0)
+                assert denied["status"] == "error" and "controlled_by_other" in denied["message"]
+            finally:
+                await client._drop_connection()
+                await rival._drop_connection()
+                srv2.close()
+                await srv2.wait_closed()
+
+        asyncio.run(scenario())
+
+    def test_lease_expires_while_bridge_is_idle(self, monkeypatch):
+        """超过时限后控制权自动释放：重连的桥不再被认作持有者，需要重新认领。"""
+        make_fake_device(monkeypatch)
+        monkeypatch.setattr(lease_config, "ttl_seconds", 0.2)
+
+        async def scenario():
+            srv = await start_psu_server()
+            client = PsuClient(host=HOST, port=PORT, timeout=2.0)
+            try:
+                assert (await client.request("set_voltage", value=12.0))["status"] == "success"
+                assert (await client.request("lease_status"))["holder"] == "mcp-bridge"
+                await asyncio.sleep(0.3)
+                assert (await client.request("lease_status"))["holder"] is None
+                assert (await client.request("set_voltage", value=13.0))["status"] == "success"
+                assert (await client.request("lease_status"))["holder"] == "mcp-bridge"
+            finally:
+                await client._drop_connection()
+                srv.close()
+                await srv.wait_closed()
+
+        asyncio.run(scenario())
+
+    def test_unregistered_client_id_fails_with_server_reason(self, monkeypatch, tmp_path):
+        """无界面模式下未登记的桥身份应直接给出拒绝原因，而不是被传输层重试掩盖。"""
+        make_fake_device(monkeypatch)
+        path = tmp_path / "empty-clients.json"
+        path.write_text(json.dumps({"schema_version": 1, "clients": {}}), encoding="utf-8")
+        use_registry(ClientRegistry.load(path))
+
+        async def scenario():
+            srv = await start_psu_server()
+            try:
+                client = PsuClient(host=HOST, port=PORT, timeout=2.0)
+                with pytest.raises(PsuAccessDeniedError) as ei:
+                    await client.request("voltage_query")
+                assert "no_approver" in str(ei.value)
+            finally:
+                await client._drop_connection()
+                srv.close()
+                await srv.wait_closed()
+
+        asyncio.run(scenario())
+
+    def test_client_id_and_tier_are_configurable(self, monkeypatch, tmp_path):
+        """只读场景可用更低身份登录，验证 client_id/tier 不是硬编码在请求里。"""
+        make_fake_device(monkeypatch)
+        path = tmp_path / "clients.json"
+        path.write_text(json.dumps({"schema_version": 1, "clients": {
+            "observer": {"tier": "L0", "name": "只读观察端"}
+        }}), encoding="utf-8")
+        use_registry(ClientRegistry.load(path))
+
+        async def scenario():
+            srv = await start_psu_server()
+            try:
+                client = PsuClient(host=HOST, port=PORT, timeout=2.0,
+                                   client_id="observer", tier="L0")
+                assert (await client.request("voltage_query"))["status"] == "success"
+                denied = await client.request("set_voltage", value=12.0)
+                assert denied["status"] == "error" and "insufficient_tier" in denied["message"]
+            finally:
+                await client._drop_connection()
+                srv.close()
+                await srv.wait_closed()
 
         asyncio.run(scenario())
 

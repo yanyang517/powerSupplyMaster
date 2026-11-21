@@ -9,6 +9,12 @@ from qasync import QEventLoop, asyncSlot, asyncClose
 import serial
 from serial.tools import list_ports
 import serial_asyncio
+
+from server.access import set_approval_handler
+from server.session import lease
+from views.admission_dialog import AdmissionDialog
+from views.confirmation import ask_yes_no
+
 from .model import PowerSupplyModel
 
 # Configure logging
@@ -28,6 +34,8 @@ class Presenter(QObject):
         self.view.show()
 
         self._refresh_voltage_current_task = None
+        self._admission_dialogs = []
+        set_approval_handler(self._on_admission_request)
 
     def get_available_ports(self) -> list:
         '''
@@ -42,6 +50,26 @@ class Presenter(QObject):
 
     def connect_signal_slots(self):
         pass
+
+    def _on_admission_request(self, approval) -> None:
+        """服务端准入回调：与 Qt 共用事件循环，弹窗只呈现、不阻塞等待。"""
+        dialog = AdmissionDialog(approval, parent=self.view)
+        self._admission_dialogs.append(dialog)
+        dialog.finished.connect(lambda _code, d=dialog: self._admission_dialogs.remove(d))
+        dialog.show()
+
+    async def _may_write_from_panel(self) -> bool:
+        """面板写操作免于控制权检查，但有人持有时要先让用户确认接管。"""
+        snap = lease.snapshot()
+        if snap.holder is None:
+            return True
+        return await ask_yes_no(
+            "电源正被远程控制",
+            f"{snap.holder} 当前持有控制权（剩余 {snap.remaining_seconds:.0f} 秒）。\n"
+            "确认由面板下发本次改动？",
+            parent=self.view,
+            yes_text="由面板下发",
+        )
 
 
     @asyncSlot()
@@ -82,6 +110,9 @@ class Presenter(QObject):
     
     @asyncSlot(float)
     async def set_voltage(self, voltage):
+        if not await self._may_write_from_panel():
+            logger.info("面板写操作被用户取消：set_voltage=%s", voltage)
+            return
 
         self.view.update_voltage_setting(voltage)
         await self.model.set_voltage(voltage)
@@ -98,5 +129,10 @@ class Presenter(QObject):
 
     @asyncSlot(bool)
     async def set_on_off(self, value: bool):
+        if not await self._may_write_from_panel():
+            logger.info("面板写操作被用户取消：set_on_off=%s", value)
+            return
+
         await self.model.set_on_off(value)
+        self.view.update_output_setting(value)
         
