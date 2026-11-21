@@ -263,6 +263,20 @@ _OUTPUT_SWITCH_TEMPLATE = """
 }}
 """
 
+# 关于页与状态栏的提示控件同样只靠 objectName 限定作用域（见本文件既有约定）：
+# 版本信息是次要内容，颜色用 text_dim 而不是 text，层级只靠字重表达——
+# test_theme.py 禁止样式表出现 font-size。
+_ABOUT_TEMPLATE = """
+#about_title_label {{
+    font-weight: bold;
+    color: {text};
+}}
+
+#about_meta_label {{
+    color: {text_dim};
+}}
+"""
+
 
 def tokens(mode: str = "dark") -> dict:
     try:
@@ -281,6 +295,7 @@ def build_qss(mode: str = "dark") -> str:
             name=name, color=t[token], hover=t["hover"]
         )
     qss += _OUTPUT_SWITCH_TEMPLATE.format(**t)
+    qss += _ABOUT_TEMPLATE.format(**t)
     return qss
 
 

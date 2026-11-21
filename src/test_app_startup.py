@@ -7,6 +7,7 @@ import json
 import pytest
 
 import app as app_module
+import version as version_module
 
 from server.registry import get_registry
 from server.session import lease_config
@@ -56,8 +57,23 @@ class TestParseArgs:
         args = app_module.parse_args()
         assert args.clients is None
         assert args.lease_ttl == pytest.approx(120.0)
+        assert args.no_update_check is False
 
     def test_new_flags_accept_values(self, monkeypatch):
         monkeypatch.setattr("sys.argv", ["app", "--clients", "c.json", "--lease-ttl", "30"])
         args = app_module.parse_args()
         assert args.clients == "c.json" and args.lease_ttl == 30.0
+
+    def test_update_check_can_be_disabled(self, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["app", "--no-update-check"])
+        assert app_module.parse_args().no_update_check is True
+
+
+class TestVersionLogging:
+    def test_startup_log_contains_the_version(self, caplog):
+        """启动日志必须能看到版本，否则用户报障时无从判断跑的是哪一版。"""
+        import logging
+
+        with caplog.at_level(logging.INFO, logger="app"):
+            app_module.logger.info(version_module.summary())
+        assert version_module.__version__ in caplog.text

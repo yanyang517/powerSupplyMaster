@@ -1,0 +1,64 @@
+# 版本信息（version info）
+
+## 唯一真源
+
+`src/version.py` 是应用版本号的唯一定义处：
+
+```python
+__version__ = "1.0.0"      # 主.次.修订，三段数字
+channel = "stable"
+```
+
+仓库内其他位置只允许出现对它的引用，不允许再写一份需要人工同步的字面版本号。`src/test_version.py::TestSingleSourceOfTruth` 会扫描 `src/`、`scripts/`、`.github/workflows/` 并把违规者列出来。
+
+发布用 git tag 必须是 `v` + `__version__`，由 `tag_name()` 给出，发布流程以此比对。
+
+## 派生落点
+
+| 落点 | 取值方式 |
+|---|---|
+| 窗口标题 | `display_version()`，在 `MainWindow.setupUi()` 里覆盖 uic 生成的占位文案 |
+| 「关于」页 | `display_version()` + `channel` + `build_label()`，Python 侧注入，不改 `.ui` |
+| 启动日志 | `summary()`，`app.main()` 的第一条日志 |
+| exe 文件属性 | `scripts/build_exe.ps1` 读取后生成 PyInstaller 版本资源（见下） |
+| 控制通路 | `setting_query` 响应与 MCP `get_status` 返回值 |
+
+## 构建期来源信息
+
+提交标识与构建时间不写在真源里，而由构建脚本生成 `src/_build_info.py`（已 gitignore）：
+
+```python
+build_commit = "dead123"
+build_time = "2026-11-21T09:30:00Z"
+```
+
+该文件不存在时 `is_dev_build()` 为真，关于页与日志会明确显示 `dev build`，新版本提示也不会对开发构建弹出。这样"源码直跑"和"发布产物"在界面上一眼可分，不必靠猜。
+
+## 改版本号的动作
+
+1. 改 `src/version.py` 的 `__version__`。
+2. 同步 `update/latest.json` 的 `version`（对外公告副本，见"发布清单"一节）。
+3. 提交，合入 master 后打 tag `v<新版本>`。
+
+第 2 步漏掉的后果是静默的：用户永远收不到提示而不会报错。因此 `scripts/gen_manifest.py --check` 与 release 工作流都会卡这一条。
+
+## 验收命令
+
+在仓库根目录执行：
+
+```powershell
+# 版本相关测试
+.venv\Scripts\python.exe -m pytest src/test_version.py src/views/test_version_display.py
+
+# 构建后确认 exe 携带版本元数据
+.venv\Scripts\python.exe -m pytest src/test_version.py
+powershell -File scripts\build_exe.ps1
+(Get-Item dist/powerSupplyMaster/powerSupplyMaster.exe).VersionInfo |
+    Select-Object FileVersion, ProductVersion, ProductName
+```
+
+`FileVersion` 与 `ProductVersion` 必须等于 `src/version.py` 里的 `__version__`。
+
+## 已知渲染限制
+
+离屏（`QT_QPA_PLATFORM=offscreen`）截图里中文会显示成方框，那是该平台缺 CJK 字体，不是主题缺陷；界面文案的正确性由 `src/views/test_version_display.py` 的控件断言保证，截图只用于确认布局与配色。
