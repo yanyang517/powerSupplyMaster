@@ -38,6 +38,9 @@ class FakeView(QWidget):
     def update_output_setting(self, value):
         pass
 
+    def update_recording_state(self):
+        pass
+
 
 class FakeModel:
     def __init__(self):
