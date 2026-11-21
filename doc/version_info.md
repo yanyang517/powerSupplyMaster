@@ -42,6 +42,37 @@ build_time = "2026-11-21T09:30:00Z"
 
 第 2 步漏掉的后果是静默的：用户永远收不到提示而不会报错。因此 `scripts/gen_manifest.py --check` 与 release 工作流都会卡这一条。
 
+## 发版动作清单
+
+一次发布按顺序走完五步，前四步都在本地，第五步交给 release 工作流：
+
+1. 一个 bump commit 同时改两处：`src/version.py` 的 `__version__` 与 `update/latest.json` 的
+   `version`（`date` 一并更新为发版日）。两处一起提交，是为了让"改了版本但忘了公告"在
+   同一个 diff 里就看得见。
+2. 本地闸门：`.venv\Scripts\python.exe scripts\gen_manifest.py --check`。
+3. 按项目约定用 `git merge --no-ff` 把特性分支合入 master。
+4. 在合入后的 master 上打 tag `v<新版本>`（必须等于 `tag_name()`），再分别 `git push github`
+   与 `git push origin`（Gitee）。两个源都要推：清单是从 raw URL 读的，只推一边就等于只
+   给一半用户发公告。
+5. release 工作流跑两道检查：构建前 `--check`，发布后 `--remote` 用应用实际会访问的两个
+   raw URL 回读，断言远端版本等于 tag。
+
+`--check` 覆盖的正是第 1 步会漏的那对文件，外加 tag：
+
+| 校验 | 不一致时的表现 |
+|---|---|
+| `__version__` 是 `主.次.修订` 三段数字 | 报错退出，构建不开始 |
+| `update/latest.json` 可解析且必填字段齐 | 报错退出 |
+| 清单 `version` == `__version__` | 报错退出 |
+| 清单 `channel` == `version.py` 的 `channel` | 报错退出 |
+| tag == `v{__version__}`（tag 已知时） | 报错退出 |
+
+`--remote` 额外覆盖"推到位没有"：任一可达源版本对不上就失败；所有源都读不到也失败（回读
+什么都没验证）；只有个别源连不上则记警告不失败——源不可用是网络现实，不该把发布卡死。
+
+tag 之外还有一处不在 `--check` 范围内：GitHub Release 的资产名与说明文本由工作流从
+`GITHUB_REF_NAME` 推导，不需要人工同步，因此不构成第二处真源。
+
 ## 验收命令
 
 在仓库根目录执行：

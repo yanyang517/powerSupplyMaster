@@ -36,6 +36,13 @@ jobs:
           .venv/Scripts/python.exe -m pip install --upgrade pip
           .venv/Scripts/python.exe -m pip install -r requirements.txt
 
+      - name: Check release manifest
+        shell: pwsh
+        run: |
+          # 版本真源、update/latest.json 与 tag 三方对齐；对不齐就别浪费时间构建。
+          # tag 来源：tag 触发时是 GITHUB_REF_NAME，dispatch 时退回本地 HEAD tag。
+          .venv/Scripts/python.exe scripts/gen_manifest.py --check
+
       - name: Build executable
         shell: pwsh
         run: ./scripts/build_exe.ps1
@@ -67,3 +74,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$env:GITHUB_REF_NAME" $env:ARCHIVE --generate-notes --title "$env:GITHUB_REF_NAME"
+
+      - name: Read back published manifests
+        if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+        shell: pwsh
+        run: |
+          # 应用只会"不提示"，不会因为清单没推上去而报错，所以这里替它把话说完：
+          # 用应用实际会用的两个 raw URL 回读，版本对不上 tag 就是发布没到位。
+          .venv/Scripts/python.exe scripts/gen_manifest.py --remote --tag "$env:GITHUB_REF_NAME"
