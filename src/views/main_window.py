@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QDoubleSpinBox,
     QPushButton,
+    QTabWidget,
 )
 
 from PySide6.QtCore import Slot, QTimer, Qt, QPointF
@@ -15,6 +16,7 @@ from PySide6.QtCharts import QChart, QChartView, QLineSeries, QAbstractSeries, Q
 from PySide6.QtGui import QColor, QFont, QPainter
 
 from .ui.mainWindow_ui import Ui_MainWindow
+from .dark_dial import DarkDial
 from .floating_window import FloatingWindow
 
 # Configure logging
@@ -52,13 +54,62 @@ class MainWindow(QMainWindow):
 
     def setupUi(self):
         self.ui.setupUi(self)
+        self.ui.tabWidget.setTabShape(QTabWidget.TabShape.Rounded)
+        self._swap_voltage_dial()
 
         # Initialize the chart in groupBox_8
         self._setup_chart()
 
         available_ports, perfered_index = self.presenter.get_available_ports()
         self.ui.com_num_comboBox.addItems(available_ports)
-    
+
+    def _swap_voltage_dial(self):
+        """把 uic 生成的 QDial 换成自绘的 DarkDial。
+
+        必须在 connect_signal_slots() 之前调用：接线有四处引用
+        self.ui.voltage_dial，替换晚于接线会让旧控件的连接静默失效。
+        """
+        old = self.ui.voltage_dial
+        new = DarkDial(parent=old.parentWidget())
+        new.setObjectName(old.objectName())
+        for getter, setter in (
+            ("minimum", "setMinimum"),
+            ("maximum", "setMaximum"),
+            ("singleStep", "setSingleStep"),
+            ("pageStep", "setPageStep"),
+            ("value", "setValue"),
+            ("notchesVisible", "setNotchesVisible"),
+            ("notchTarget", "setNotchTarget"),
+            ("wrapping", "setWrapping"),
+        ):
+            getattr(new, setter)(getattr(old, getter)())
+        new.setSizePolicy(old.sizePolicy())
+
+        layout = self._find_layout(old, old.parentWidget().layout())
+        if layout is not None:
+            layout.replaceWidget(old, new)
+        else:
+            new.setParent(old.parentWidget())
+            new.setGeometry(old.geometry())
+        old.setParent(None)
+        old.deleteLater()
+        self.ui.voltage_dial = new
+
+    @staticmethod
+    def _find_layout(widget, layout):
+        if layout is None:
+            return None
+        for i in range(layout.count()):
+            item = layout.itemAt(i)
+            if item is None:
+                continue
+            if item.widget() is widget:
+                return layout
+            found = MainWindow._find_layout(widget, item.layout())
+            if found is not None:
+                return found
+        return None
+
     def _setup_chart(self):
         """Initialize separate voltage and current charts in groupBox_8"""
         # Create main vertical layout for groupBox_8
