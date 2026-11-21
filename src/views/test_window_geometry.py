@@ -44,6 +44,14 @@ class TestGeometryFilePath:
         assert path.parent == Path(wg.__file__).resolve().parents[2] / "config"
         assert path.is_absolute()
 
+    def test_frozen_path_follows_executable(self, monkeypatch, tmp_path):
+        exe = tmp_path / "dist" / "powerSupplyMaster.exe"
+        monkeypatch.setattr(wg.sys, "frozen", True, raising=False)
+        monkeypatch.setattr(wg.sys, "executable", str(exe))
+        path = wg.geometry_file_path()
+        assert path == exe.resolve().parent / "config" / "window_geometry.json"
+        assert path.parent != Path(wg.__file__).resolve().parents[2] / "config"
+
 
 class TestLoadEntries:
     def test_missing_file_returns_none(self, tmp_path):
