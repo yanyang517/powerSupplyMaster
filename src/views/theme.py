@@ -263,6 +263,50 @@ _OUTPUT_SWITCH_TEMPLATE = """
 }}
 """
 
+# 关于页与状态栏的提示控件同样只靠 objectName 限定作用域（见本文件既有约定）：
+# 版本信息是次要内容，颜色用 text_dim 而不是 text，层级只靠字重表达——
+# test_theme.py 禁止样式表出现 font-size。
+_ABOUT_TEMPLATE = """
+#about_title_label {{
+    font-weight: bold;
+    color: {text};
+}}
+
+#about_meta_label {{
+    color: {text_dim};
+}}
+"""
+
+# 更新提示条：文字与状态栏既有配色一致（text_dim），只有动作按钮用主色提亮，
+# 让"这是一条可点的提示"从颜色上成立，而不是靠字号。
+_UPDATE_TEMPLATE = """
+#update_notice_widget {{
+    background-color: {surface_alt};
+    border: 1px solid {border};
+    border-radius: {radius_small};
+}}
+
+#update_notice_label {{
+    color: {text_dim};
+}}
+
+#update_notice_result_label {{
+    color: {text_dim};
+}}
+
+#update_notice_button {{
+    color: {primary};
+    background-color: transparent;
+    border: 1px solid {border_strong};
+    border-radius: {radius_small};
+    padding: 0 {gap_small};
+}}
+
+#update_notice_button:hover {{
+    background-color: {hover};
+}}
+"""
+
 
 def tokens(mode: str = "dark") -> dict:
     try:
@@ -281,6 +325,8 @@ def build_qss(mode: str = "dark") -> str:
             name=name, color=t[token], hover=t["hover"]
         )
     qss += _OUTPUT_SWITCH_TEMPLATE.format(**t)
+    qss += _ABOUT_TEMPLATE.format(**t)
+    qss += _UPDATE_TEMPLATE.format(**t)
     return qss
 
 

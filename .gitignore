@@ -40,6 +40,8 @@ logs/
 # PyInstaller
 *.manifest
 *.spec
+# 构建期由 scripts/build_exe.ps1 写入的版本来源信息，源码直跑时不存在即判为 dev 构建
+src/_build_info.py
 
 # mypy
 .mypy_cache/

@@ -17,6 +17,8 @@ from views.main_window import MainWindow
 from views.theme import build_palette, build_qss
 from presenter.presenter import Presenter
 from presenter.model import PowerSupplyModel
+from views import update_notice
+import version
 
 # Configure logging
 logging.basicConfig(
@@ -99,6 +101,8 @@ def report_startup_failure(message: str) -> None:
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--no-gui', action='store_true', help='Run without GUI (server mode only)')
+    parser.add_argument('--no-update-check', action='store_true',
+                        help='skip the background check for a newer release (GUI mode only)')
     parser.add_argument('--max-voltage', type=float, default=runtime_config.max_voltage,
                         help=f'Max allowed set voltage in V (default: {runtime_config.max_voltage})')
     parser.add_argument('--max-current', type=float, default=runtime_config.max_current,
@@ -124,10 +128,12 @@ def bootstrap_access(clients_arg, lease_ttl: float) -> ClientRegistry:
 
 def main(args=None):
     args = parse_args()
+    logger.info(version.summary())
     runtime_config.max_voltage = args.max_voltage
     runtime_config.max_current = args.max_current
     logger.info(f"Control limits: max_voltage={runtime_config.max_voltage}V, max_current={runtime_config.max_current}A")
     bootstrap_access(args.clients, args.lease_ttl)
+    update_check_enabled = not args.no_update_check
     if not args.no_gui:
         app = QApplication(sys.argv)
         # 固定深色外观：宿主为浅色配色时也必须一致，所以样式表之外还要显式给 QPalette。
@@ -142,7 +148,14 @@ def main(args=None):
         # window.show()
 
         presenter = Presenter(MainWindow)
-        
+
+        # 更新提示：只在 GUI 模式接线，--no-gui 通路一次网络请求都不发。
+        notifier = update_notice.attach(presenter.view, enabled=update_check_enabled)
+        if update_check_enabled:
+            notifier.start()
+        else:
+            logger.info("update check disabled by --no-update-check")
+
         loop.create_task(server_main())
         with loop:
             loop.run_forever()

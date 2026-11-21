@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "version": "1.0.0",
+  "channel": "stable",
+  "date": "2026-11-21",
+  "release_urls": {
+    "gitee": "https://gitee.com/yanyang517/power-supply-master/releases",
+    "github": "https://github.com/yanyang517/powerSupplyMaster/releases"
+  }
+}

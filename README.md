@@ -14,6 +14,7 @@
 - **全通路统一安全限值** — `--max-voltage` / `--max-current` 由服务端强制，GUI、TCP 客户端、AI 一律受限。
 - **设备模拟器** — 独立进程的 SCPI 虚拟电源，配合虚拟串口即可在无硬件环境下开发与联调。
 - **无头模式** — `--no-gui` 仅运行控制服务。
+- **版本标识与更新提示** — 版本号唯一定义在 `src/version.py`，出现在窗口标题、关于页、启动日志、exe 文件属性与 `setting_query`/MCP 返回值中；后台按 `update/latest.json` 清单检查新版本，只在状态栏提示，不下载、不自动替换（`--no-update-check` 或 `--no-gui` 时不探测）。详见 [doc/version_info.md](doc/version_info.md)、[doc/update_notice.md](doc/update_notice.md)。
 
 ## 架构
 
@@ -93,7 +94,7 @@ python src/app.py
 
 | 工具 | 参数 | 说明 |
 |---|---|---|
-| `get_status` | 无 | 聚合返回电压(V)、电流(A)、输出开关、设备标识、生效限值 |
+| `get_status` | 无 | 聚合返回电压(V)、电流(A)、输出开关、设备标识、生效限值 `limits`（含上位机版本 `limits.server_version`） |
 | `set_voltage` | `voltage` (V) | 超出 `limits.max_voltage_v` 会被拒绝并提示允许范围 |
 | `set_current` | `current` (A) | 超出 `limits.max_current_a` 会被拒绝 |
 | `set_output` | `enable` (bool) | 接通/断开输出 |
@@ -104,7 +105,7 @@ python src/app.py
 
 帧格式：`uint32 大端长度 | UTF-8 JSON`，一问一答，端口 **18888**。
 
-请求字段：`type`（判别字段）、`request_id`、`timestamp`，以及各命令的专属参数。支持的 type 包括 `echo`、`login`/`logout`、`open_device`/`close_device`、`set_voltage`、`set_current`、`set_on_off`、`voltage_query`、`current_query`、`on_off_query`、`device_id_query`。契约定义见 [src/server/protocal/protocal.py](src/server/protocal/protocal.py)，客户端示例见 [src/server/test_client.py](src/server/test_client.py)。
+请求字段：`type`（判别字段）、`request_id`、`timestamp`，以及各命令的专属参数。支持的 type 包括 `echo`、`login`/`logout`、`open_device`/`close_device`、`set_voltage`、`set_current`、`set_on_off`、`voltage_query`、`current_query`、`on_off_query`、`device_id_query`、`setting_query`（响应含生效限值与上位机版本）。契约定义见 [src/server/protocal/protocal.py](src/server/protocal/protocal.py)，客户端示例见 [src/server/test_client.py](src/server/test_client.py)。
 
 ## 打包 Windows 可执行文件
 
@@ -120,13 +121,16 @@ GitHub Actions 工作流（[.github/workflows/release.yml](.github/workflows/rel
 ```
 src/
 ├── app.py              # 入口（GUI + 服务同循环运行）
+├── version.py          # 应用版本号唯一定义处
 ├── presenter/          # MVP：展示逻辑 + 周期采样调度
-├── views/              # PySide6 界面（主窗口、悬浮窗、深色主题）
+├── views/              # PySide6 界面（主窗口、悬浮窗、深色主题、更新提示）
 ├── device/             # SCPI 串口驱动（单例）+ 设备模拟器
 ├── server/             # TCP/JSON 服务、分发器、请求契约
-└── mcp_server/         # 面向 AI 客户端的 stdio MCP 桥
+├── mcp_server/         # 面向 AI 客户端的 stdio MCP 桥
+└── update/             # 新版本探测：清单解析、比较、状态、调度
+update/latest.json      # 对外公告的发布清单（Gitee 与 GitHub 同源）
 doc/                    # 架构文档、MCP 接入指南
-scripts/                # PyInstaller 打包脚本
+scripts/                # PyInstaller 打包脚本、清单生成与校验
 ```
 
 ## 测试

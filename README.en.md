@@ -14,6 +14,7 @@ Connect over serial (pyserial) to any SCPI-speaking bench supply (developed agai
 - **Shared safety limits** — `--max-voltage` / `--max-current` are enforced server-side and apply uniformly to GUI, TCP clients, and AI.
 - **Device simulator** — a standalone SCPI simulator process (with virtual serial ports) for development and integration testing without hardware.
 - **Headless mode** — `--no-gui` runs the control server alone.
+- **Version identity and update notice** — the version is defined once in `src/version.py` and surfaced in the window title, About page, startup log, exe file properties and the `setting_query`/MCP responses. A background check reads the `update/latest.json` manifest and only shows a status-bar notice — it never downloads or replaces anything (skipped with `--no-update-check` or `--no-gui`). See [doc/version_info.md](doc/version_info.md) and [doc/update_notice.md](doc/update_notice.md).
 
 ## Architecture
 
@@ -93,7 +94,7 @@ Available tools:
 
 | Tool | Arguments | Description |
 |---|---|---|
-| `get_status` | — | Voltage, current, output state, device ID, active limits |
+| `get_status` | — | Voltage, current, output state, device ID, active `limits` (incl. the host app version as `limits.server_version`) |
 | `set_voltage` | `voltage` (V) | Rejected with guidance if outside `limits.max_voltage_v` |
 | `set_current` | `current` (A) | Rejected if outside `limits.max_current_a` |
 | `set_output` | `enable` (bool) | Switch the output on/off |
@@ -104,7 +105,7 @@ More details: [doc/mcp_integration.md](doc/mcp_integration.md).
 
 Frame format: `uint32BE payload length | UTF-8 JSON`, one request → one response, on port **18888**.
 
-Request fields: `type` (discriminator), `request_id`, `timestamp`, plus command-specific parameters. Supported types include `echo`, `login`/`logout`, `open_device`/`close_device`, `set_voltage`, `set_current`, `set_on_off`, `voltage_query`, `current_query`, `on_off_query`, `device_id_query`. See [src/server/protocal/protocal.py](src/server/protocal/protocal.py) for the schema (contract) definitions and a client example in [src/server/test_client.py](src/server/test_client.py).
+Request fields: `type` (discriminator), `request_id`, `timestamp`, plus command-specific parameters. Supported types include `echo`, `login`/`logout`, `open_device`/`close_device`, `set_voltage`, `set_current`, `set_on_off`, `voltage_query`, `current_query`, `on_off_query`, `device_id_query`, `setting_query` (its response carries the active limits and the host app version). See [src/server/protocal/protocal.py](src/server/protocal/protocal.py) for the schema (contract) definitions and a client example in [src/server/test_client.py](src/server/test_client.py).
 
 ## Build a Windows executable
 
@@ -120,13 +121,16 @@ A GitHub Actions workflow ([.github/workflows/release.yml](.github/workflows/rel
 ```
 src/
 ├── app.py              # entry point (GUI + server in one loop)
+├── version.py          # the single definition of the app version
 ├── presenter/          # MVP: presentation logic + periodic sampling
-├── views/              # PySide6 UI (main window, floating window, dark theme)
+├── views/              # PySide6 UI (main window, floating window, dark theme, update notice)
 ├── device/             # SCPI serial driver (singleton) + device simulator
 ├── server/             # TCP/JSON socket server, dispatcher, request schema
-└── mcp_server/         # stdio MCP bridge for AI clients
+├── mcp_server/         # stdio MCP bridge for AI clients
+└── update/             # update probing: manifest, comparison, state, scheduler
+update/latest.json      # published release manifest (same file on Gitee and GitHub)
 doc/                    # architecture docs, MCP integration guide
-scripts/                # PyInstaller build script
+scripts/                # PyInstaller build script, manifest generation and checks
 ```
 
 ## Testing

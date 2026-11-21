@@ -13,6 +13,7 @@ from .registry import Principal, Tier
 from .runtime_config import runtime_config
 from .session import Session
 from device.scpi_power_supply import SCPI_PowerSupply
+import version
 
 
 def make_session(client_id: str = "tester", tier: Tier = Tier.L2) -> Session:
@@ -105,6 +106,27 @@ class TestSettingQuery:
         monkeypatch.setattr(runtime_config, "max_voltage", 24.0)
         resp = dispatch("setting_query")
         assert resp.max_voltage == 24.0
+
+    def test_response_carries_the_running_version(self, fake_device):
+        """客户端要靠这一个字段判断连的是哪一版上位机，报障时才不用猜。"""
+        resp = dispatch("setting_query")
+        assert resp.version == version.__version__
+
+    def test_version_follows_the_single_source(self, fake_device, monkeypatch):
+        """版本必须现场取自真源，而不是 handler 里抄的一份。"""
+        monkeypatch.setattr(version, "__version__", "9.9.9")
+        resp = dispatch("setting_query")
+        assert resp.version == "9.9.9"
+
+    def test_works_without_a_connected_device(self, fake_device):
+        """限值与版本都来自本进程：串口没连上也必须答得出，且是 success。"""
+        psu, calls = fake_device
+        psu.is_connected = False
+        resp = dispatch("setting_query")
+        assert resp.status == "success"
+        assert resp.max_voltage == 30.0
+        assert resp.version == version.__version__
+        assert calls == []
 
 
 class TestNotConnected:

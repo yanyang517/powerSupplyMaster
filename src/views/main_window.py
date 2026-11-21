@@ -16,9 +16,11 @@ from PySide6.QtCharts import QChart, QChartView, QLineSeries, QAbstractSeries, Q
 from PySide6.QtGui import QColor, QFont, QPainter
 
 from .ui.mainWindow_ui import Ui_MainWindow
+import version
 from .access_panel import AccessPanel
 from .dark_dial import DarkDial
 from .floating_window import FloatingWindow
+from .update_notice import ManualCheckRow, UpdateNoticeWidget
 from . import window_geometry as wg
 
 # Configure logging
@@ -63,9 +65,50 @@ class MainWindow(QMainWindow):
 
         # Initialize the chart in groupBox_8
         self._setup_chart()
+        self._fill_about_tab()
 
         available_ports, perfered_index = self.presenter.get_available_ports()
         self.ui.com_num_comboBox.addItems(available_ports)
+
+    def _fill_about_tab(self):
+        """在 uic 生成的空「关于」页上挂版本信息。
+
+        沿用 _swap_voltage_dial 的做法：不动 .ui、不重跑 uic，全部在 Python 侧注入。
+        「立即检查」行由 update_notice 接线时追加到同一个布局里。
+        """
+        self.setWindowTitle(f"powerSupplyMaster {version.display_version()}")
+
+        layout = QVBoxLayout(self.ui.tab_about)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(6)
+
+        title = QLabel(f"powerSupplyMaster {version.display_version()}")
+        title.setObjectName("about_title_label")
+        layout.addWidget(title)
+
+        for text in (
+            f"版本 {version.__version__}",
+            f"通道 {version.channel}",
+            f"构建 {version.build_label()}",
+        ):
+            layout.addWidget(self._about_line(text))
+
+        # 「立即检查」行：后台节流提示在开发机上几乎不会出声，手动入口才是可验证的那一个。
+        self.update_manual_row = ManualCheckRow(self.ui.tab_about)
+        layout.addWidget(self.update_manual_row)
+
+        layout.addStretch(1)
+
+        self.update_notice = UpdateNoticeWidget(self)
+        # addWidget 而不是 showMessage：状态栏的瞬时消息通道会被任何一次
+        # showMessage 覆盖，更新提示需要一直挂在栏上直到用户处置。
+        self.ui.statusbar.addWidget(self.update_notice)
+
+    def _about_line(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("about_meta_label")
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        return label
 
     def _swap_voltage_dial(self):
         """把 uic 生成的 QDial 换成自绘的 DarkDial。
