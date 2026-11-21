@@ -393,6 +393,10 @@ class MainWindow(QMainWindow):
     def update_output_setting(self, value: bool):
         self.ui.ouput_ctrl_Btn.setText("关闭输出" if value else "开启输出")
 
+    def update_device_id(self, value):
+        """presenter 连接后回填设备标识；读不到时留空而不是报错。"""
+        self.ui.device_info_lineEdit.setText(str(value) if value else "")
+
     def update_voltage_setting(self, value: float):
         # self.ui.voltage_dial.setValue(value*100)
         self.ui.voltage_spinBox.setValue(value)
