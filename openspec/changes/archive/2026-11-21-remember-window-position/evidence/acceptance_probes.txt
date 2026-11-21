@@ -1,0 +1,59 @@
+验收实测记录（任务 2.x～5.x）
+
+环境
+- 工作目录: D:/git/wt/remember-window-position (branch feature/remember-window-position, base e72059a)
+- 解释器: D:/git/powerSupplyMaster/.venv → Python 3.13.14, PySide6 6.11.0（`requirements.txt:13-15` 钉 6.10.2）
+- 平台: QT_QPA_PLATFORM=windows；屏幕 A34QG，availableGeometry=(124, 0, 2653, 1152)，dpr=1.25
+- 基线: 见 evidence/baseline_geometry.txt
+- 探针: 临时脚本（构造 Presenter(MainWindow) 后按场景断言），每场景独立进程，避免窗口与历史互相污染
+
+单元测试（组 2）
+    python -m pytest src/views/test_window_geometry.py -q → 41 passed
+  覆盖：路径与 cwd 无关（drive 根 与 src 两种 cwd）、缺文件/坏 JSON/version 非 1/缺字段/浮点或字符串或 None 或 list 或 bool 类型/尺寸非正 → 全部判不可用；负坐标（左屏）判合法；
+  相交判据四例（完全在内 True、越界 40% True、越界 60% False、第二块屏 True、无屏 False）；
+  clamp（越界拉回、界内不动、窗口大于可用区时左上角取可用区原点）；
+  default_main_rect 与 default_floating_pos 的公式断言、可用区小于窗口时不越界、choose_available_rect 选重叠屏与回退首屏；
+  save_geometry 回读、JSON 缩进可读、目录不可创建（父路径为普通文件）返回 False 不抛、os.replace 失败时原文件内容不变且不留 .tmp。
+  注：`restored_rect` 的 5 条例为实施中新增（历史尺寸优先、固定尺寸窗口用传入尺寸、越界返回 None、越界拉回）。
+
+GUI 场景实测
+1) defaults（无历史，首次启动）
+    ASSERT PASS main centered (1155, 265, 591, 622) == default_main_rect
+    ASSERT PASS floating bottom-right margin (2346, 1047) == default_floating_pos
+    ASSERT PASS floating inside avail (2346, 1047, 407, 81)
+    ASSERT PASS floating size fixed / position applied before first show（visible=False pos=(2346,1047)）
+    CONFIG exists=False → 仅恢复不写盘，首次启动不产生文件
+2) 拖拽 + 关窗落盘（第一轮）
+    ASSERT PASS drag moves window with cursor pos1=(200, 150)
+    ASSERT PASS drag follows pointer delta moved=(150, 120) == pointer_delta
+    ASSERT PASS no move after release（_drag_pos 已清空）
+    BEFORE_CLOSE main=(300, 100, 900, 700) floating=(350, 270)
+    ASSERT PASS config written on close / saved main matches pre-close / saved floating matches pre-close / saved screen names A34QG
+3) 重启恢复（第二轮，独立进程）
+    ASSERT PASS restored main position+size (300, 100, 900, 700)
+    ASSERT PASS restored floating position (350, 270)
+    ASSERT PASS restored floating size still fixed（407x81，历史未记尺寸）
+    ASSERT PASS not re-centered when history exists
+4) 失效回退
+    (a) 缺文件 → 同 1)（defaults）
+    (b) 非法 JSON（"{not json"）→ WARNING "window geometry file is not valid JSON, using default layout" ×2（主窗与悬浮窗各一次），ASSERT PASS main centered / floating default，无崩溃
+    (c) 坐标越界（x=y=99999）→ WARNING "stored main geometry ... is off every screen, using default layout" 与 floating 同条，ASSERT PASS main centered / floating default
+5) 部分有效（main 合法 (400,300,900,700)、floating 越界）
+    ASSERT PASS main restored from valid history (400, 300, 900, 700)
+    ASSERT PASS floating falls back to default independently (2346, 1047)
+    → 逐窗口回退，非整体丢弃
+6) --no-gui 回归
+    同一探针在 master 树（无本功能）跑 PROBE_STAGE=drag，拖动三项断言与 change 树逐值相同：
+      master : pos1=(200, 150) pos2=(350, 270) moved=(150, 120) no-move-after-release PASS
+      change : pos1=(200, 150) pos2=(350, 270) moved=(150, 120) no-move-after-release PASS
+    `python src/app.py --no-gui` 两棵树输出完全一致（diff 为空）且均存活至 timeout；change 树的 config/window_geometry.json md5 在运行前后不变（f34b3af2…）
+      说明：--no-gui 日志本身为空，故本项证据是「输出与存活一致 + 历史文件未被触碰」，未对串口服务端功能做业务级验证（本 change 不触碰 server/device 代码）。
+
+代码面复核（任务 4.3）
+- `git diff` 仅显示新增行：`from . import window_geometry as wg`、`self._restore_position()` 调用、新方法本体。
+- `Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint`、`setFixedSize(407, 81)`、`mousePressEvent`/`mouseMoveEvent`/`mouseReleaseEvent`、`enterEvent`/`leaveEvent` 均无改动行。
+
+实施中对规划的两处偏离（均已实测支撑）
+1. 测试落点：tasks 原文写 `test/test_window_geometry.py`，实际按项目既有约定与包同目录放置（先例 `src/server/test_client.py` + `src/server/pytest.ini`），落点 `src/views/test_window_geometry.py`，命令 `python -m pytest src/views/test_window_geometry.py`。仓库根的 `test/` 是空目录，git 不跟踪。
+2. 越界回退的告警：spec 只要求文件级失效告警；为同时满足任务 5.2「应用日志出现告警」，`restored_rect` 在判定越界时补了一条 WARNING（见 4(c)）。
+3. 3.1 的「截图不与 1.2 基线同位」在本屏不成立：Qt 默认摆放恰为可用区居中，与默认布局同位（见 baseline 记录）。该判据改为「有历史时不居中而回历史」（场景 3 的 not re-centered 断言）。

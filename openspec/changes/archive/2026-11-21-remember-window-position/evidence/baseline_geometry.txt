@@ -1,0 +1,19 @@
+改前基线（任务 1.2）
+
+采集环境
+- 工作目录: D:/git/wt/remember-window-position (branch feature/remember-window-position, base e72059a)
+- 解释器: D:/git/powerSupplyMaster/.venv (Python 3.13.14, PySide6 6.11.0；requirements.txt 钉 6.10.2)
+- 平台: QT_QPA_PLATFORM=windows
+- 采集脚本: 临时 probe（构造 Presenter(MainWindow) 后 1.2 s 打印几何，随后退出）
+- 日期: 2026-11-21
+
+采集结果
+    SCREEN[0] name=A34QG geom=(0, 0, 2752, 1152) avail=(124, 0, 2653, 1152) dpr=1.25
+    MAIN  visible=True geom=(1155, 265, 591, 622) frame=(1155, 235, 591, 652) size=591x622
+    FLOAT visible=True geom=(1247, 535, 407, 81) frame=(1247, 535, 407, 81) size=407x81
+
+结论
+- 两个窗口的位置均由系统/Qt 默认摆放，与屏幕可用区右下角无对应关系；主窗 geom 左上角 (1155, 265)。
+- 采集前确认 `D:/git/wt/remember-window-position/config/` 与 `D:/git/powerSupplyMaster/config/` 均不存在，即无任何历史载体。
+- 悬浮窗尺寸 407x81 由 setFixedSize 固定，frameGeometry 与 geometry 相同（无边框）。
+- 主窗 frame 比 geom 高 30 px（标题栏），frame 左上角 y 比 geom 小 30 px；恢复时以 geometry()（客户区）为准。
