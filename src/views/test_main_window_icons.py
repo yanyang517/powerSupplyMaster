@@ -32,6 +32,16 @@ class StubPresenter:
     def set_on_off(self, value):
         pass
 
+    # 记录页在 _mount_record_tab 阶段就引用它们，桩件缺一个就构造不出窗口。
+    def set_recording_enabled(self, enabled):
+        return True
+
+    def recording_status(self):
+        return {}
+
+    def stop_recording(self):
+        pass
+
 
 @pytest.fixture(scope="module")
 def qapp():
@@ -53,8 +63,13 @@ def test_tab_glyph_table_names_exist_in_ui(window):
     """objectName 写错时 _apply_tab_icons 会静默跳过，这条把静默失败变成显式失败。"""
     tabs = window.ui.tabWidget
     for name in _TAB_GLYPHS:
-        page = getattr(window.ui, name, None)
-        assert page is not None, f"{name} 不在 uic 生成的控件里"
+        if name == "tab_record":
+            # 记录页不在 .ui 里，是代码 addTab 挂的，只能从窗口上找
+            page = window.record_panel
+        else:
+            page = getattr(window.ui, name, None)
+            assert page is not None, f"{name} 不在 uic 生成的控件里"
+        assert page.objectName() == name, f"{name} 与页的 objectName 不符"
         assert tabs.indexOf(page) >= 0, f"{name} 不在 tabWidget 上"
 
 

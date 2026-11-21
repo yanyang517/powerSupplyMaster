@@ -34,6 +34,16 @@ class RecordingPresenter:
     def set_on_off(self, value):
         self.on_off_calls.append(value)
 
+    # 记录页在 _mount_record_tab 阶段就引用它们，桩件缺一个就构造不出窗口。
+    def set_recording_enabled(self, enabled):
+        return True
+
+    def recording_status(self):
+        return {}
+
+    def stop_recording(self):
+        pass
+
 
 @pytest.fixture(scope="module")
 def qapp():
