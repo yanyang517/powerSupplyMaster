@@ -75,16 +75,14 @@ python src/app.py
 
 1. 运行 powerSupplyMaster（GUI 或 `--no-gui`），保证 TCP 服务在监听。
 2. 在 UI 中完成一次串口连接。
-3. 在 MCP 客户端配置中加入：
+3. 安装桥包 `psu-mcp`（离线篮子方式见 [doc/mcp_integration.md](doc/mcp_integration.md)；本仓库开发者用 `pip install -e packages/psu-mcp`）。
+4. 在 MCP 客户端配置中加入：
 
 ```json
 {
   "mcpServers": {
     "power-supply": {
-      "command": "<仓库路径>/.venv/Scripts/python.exe",
-      "args": ["-m", "mcp_server"],
-      "cwd": "<仓库路径>/src",
-      "env": { "PYTHONPATH": "<仓库路径>/src" }
+      "command": "psu-mcp"
     }
   }
 }
@@ -126,7 +124,7 @@ src/
 ├── views/              # PySide6 界面（主窗口、悬浮窗、深色主题、更新提示）
 ├── device/             # SCPI 串口驱动（单例）+ 设备模拟器
 ├── server/             # TCP/JSON 服务、分发器、请求契约
-├── mcp_server/         # 面向 AI 客户端的 stdio MCP 桥
+├── mcp_server/         # 桥的线上协议回归测试（桥代码已迁至 packages/psu-mcp）
 └── update/             # 新版本探测：清单解析、比较、状态、调度
 update/latest.json      # 对外公告的发布清单（Gitee 与 GitHub 同源）
 doc/                    # 架构文档、MCP 接入指南

@@ -5,7 +5,7 @@ powerSupplyMaster 提供一个 stdio 传输的 MCP server，让 AI 客户端（Q
 ## 架构
 
 ```
-AI 客户端 --stdio--> mcp_server（按需拉起） --TCP JSON(4B长度前缀)--> SocketServer(常驻) --串口--> 电源
+AI 客户端 --stdio--> psu-mcp（按需拉起） --TCP JSON(4B长度前缀)--> SocketServer(常驻) --串口--> 电源
 ```
 
 - 串口连接**由桌面应用 UI 管理**，AI 无法打开/关闭串口。
@@ -15,10 +15,32 @@ AI 客户端 --stdio--> mcp_server（按需拉起） --TCP JSON(4B长度前缀)-
 
 ## 前置条件
 
-1. 已安装依赖：`pip install -r requirements.txt`（含 `mcp` SDK，要求 Python ≥ 3.10）。
+1. 已安装桥包 `psu-mcp`（安装方式见下节；要求 Python ≥ 3.10）。接入方**不需要**本仓库源码。
 2. powerSupplyMaster 常驻运行（GUI 或 `python src/app.py --no-gui`），默认监听 `127.0.0.1:18888`。
 3. 在 UI 中完成串口连接（AI 侧无需处理，未连接时工具会返回引导提示）。
 4. 桥的身份 `mcp-bridge` 已在随附的 `config/clients.json` 中预置。换机器、换登记表或改 `client_id` 时，需带界面运行一次并在准入弹窗中确认，或先把条目写进登记表（无界面模式下 L1/L2 准入一律被拒）。
+
+## 安装 psu-mcp（离线 wheel 篮子）
+
+在有网、且与目标机同平台/同 Python 大版本的构建机上（源码仓库内的 `packages/psu-mcp/`）：
+
+```bash
+python -m build -w                                      # 产出 dist/psu_mcp-<ver>-py3-none-any.whl
+pip download -d basket dist/psu_mcp-<ver>-*.whl         # 拉齐 mcp SDK 依赖闭包
+# 把 basket/ 目录（或 zip 打包）拷贝到目标机
+```
+
+目标机（可完全无外网）：
+
+```bash
+pip install --no-index --find-links=basket psu-mcp
+```
+
+注意：篮子中的 `rpds-py`、`cffi` 等是平台相关二进制轮子，篮子必须按目标平台分别构建；
+跨平台构建可用 `pip download --platform win_amd64 --python-version 312 --only-binary=:all:`。
+兼容性要求见 `packages/psu-mcp/CHANGELOG.md`。
+
+开发者则在仓库根执行 `pip install -e packages/psu-mcp`（可编辑安装，改动即时生效）。
 
 ## AI 客户端配置示例
 
@@ -28,16 +50,14 @@ Qoder Desktop（MCP 配置 JSON，其他客户端同理）：
 {
   "mcpServers": {
     "power-supply": {
-      "command": "D:/git/powerSupplyMaster/.venv/Scripts/python.exe",
-      "args": ["-m", "mcp_server"],
-      "cwd": "D:/git/powerSupplyMaster/src",
-      "env": { "PYTHONPATH": "D:/git/powerSupplyMaster/src" }
+      "command": "psu-mcp"
     }
   }
 }
 ```
 
-若在 worktree/其他目录运行，把 `cwd` 与 `PYTHONPATH` 指向对应的 `src` 目录即可。
+若 `psu-mcp` 不在 PATH，可写绝对路径的入口脚本，或改用等价形式：
+`"command": "<环境内 python 路径>", "args": ["-m", "psu_mcp"]`。不再需要 `cwd`/`PYTHONPATH`。
 
 ## 工具清单
 
@@ -75,6 +95,9 @@ UI 内动态编辑限值的能力规划在后续 change。
 ## 测试
 
 ```bash
+# 桥包单元测试（不依赖主仓库模块）
+cd packages/psu-mcp && python -m pytest tests
+# 线上协议回归（需 pip install -e packages/psu-mcp；含真实 SocketServer）
 cd src
 python -m pytest server/test_power_control.py mcp_server/test_bridge.py
 # 权限与控制权相关

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "psu-mcp"
+dynamic = ["version"]
+description = "MCP bridge that operates the SCPI power supply managed by powerSupplyMaster"
+requires-python = ">=3.10"
+dependencies = [
+    "mcp==2.3.0",
+]
+
+[project.scripts]
+psu-mcp = "psu_mcp.__main__:main"
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "build"]
+
+[tool.setuptools.dynamic]
+version = {attr = "psu_mcp.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["psu_mcp*"]
