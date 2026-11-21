@@ -7,6 +7,7 @@ from qasync import QEventLoop, asyncSlot, asyncClose
 from PySide6.QtWidgets import QApplication
 
 from server.socket_server import SocketServer, server_main
+from server.runtime_config import runtime_config
 from device.scpi_power_supply import SCPI_PowerSupply
 from views.main_window import MainWindow
 from presenter.presenter import Presenter
@@ -22,10 +23,17 @@ logger = logging.getLogger(__name__)
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--no-gui', action='store_true', help='Run without GUI (server mode only)')
+    parser.add_argument('--max-voltage', type=float, default=runtime_config.max_voltage,
+                        help=f'Max allowed set voltage in V (default: {runtime_config.max_voltage})')
+    parser.add_argument('--max-current', type=float, default=runtime_config.max_current,
+                        help=f'Max allowed set current in A (default: {runtime_config.max_current})')
     return parser.parse_args()
 
 def main(args=None):
     args = parse_args()
+    runtime_config.max_voltage = args.max_voltage
+    runtime_config.max_current = args.max_current
+    logger.info(f"Control limits: max_voltage={runtime_config.max_voltage}V, max_current={runtime_config.max_current}A")
     if not args.no_gui:
         app = QApplication(sys.argv)
     

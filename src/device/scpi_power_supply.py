@@ -1,7 +1,6 @@
 # -- utf-8 --
 import logging
 import asyncio
-from asyncio.locks import Lock
 
 import serial_asyncio
 import serial  # 用于定义串口参数（如数据位、校验位）
@@ -29,7 +28,14 @@ class SCPI_PowerSupply(object):
     def __init__(self):
         super().__init__()
 
-        self._locker = Lock()
+        self._locker = asyncio.Lock()
+        self._reader = None
+        self._writer = None
+        self.is_connected = False
+        self.identifier = ""
+        self.last_error = ""
+        self.serial_number = ""
+        self.baudrate = 115200
 
     async def _send_cmd(self, command, wait_response: bool = True) -> bytes:
         
@@ -60,6 +66,9 @@ class SCPI_PowerSupply(object):
         await self._send_cmd(f"VOLTage {voltage:.02f}\n".encode(), wait_response=False)
         # if "OK" is in response:
 
+    async def set_current(self, current: float) -> None:
+        await self._send_cmd(f"CURR {current:.03f}\n".encode(), wait_response=False)
+
     async def get_voltage(self) -> float:
         response = await self._send_cmd(b"MEASure:VOLTage?\n")
 
@@ -85,8 +94,18 @@ class SCPI_PowerSupply(object):
 
             self.identifier = await self.get_identifier()
             self.is_connected = True
+            self.last_error = ""
         except Exception as e:
             logger.error(f"Error connecting to {self.serial_number}: {e}")
+            self.last_error = str(e)
+            if self._writer is not None:
+                try:
+                    self._writer.close()
+                except Exception:
+                    pass
+            self._reader = None
+            self._writer = None
+            self.is_connected = False
             return False
         return self.is_connected
 
@@ -94,7 +113,9 @@ class SCPI_PowerSupply(object):
         if self._writer:
             self._writer.close()
             await self._writer.wait_closed()
-            self.is_connected = False
+        self._reader = None
+        self._writer = None
+        self.is_connected = False
 
     async def get_on_off(self) -> bool:
         response = await self._send_cmd(b"OUTP?\n")

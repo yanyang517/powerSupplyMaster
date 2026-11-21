@@ -69,6 +69,8 @@ class SocketServer:
             
             return message_json
             
+        except ConnectionError:
+            raise
         except Exception as e:
             logger.error(f"Failed to parse message: {e}", exc_info=True)
             raise
@@ -137,9 +139,16 @@ class SocketServer:
                 
         except asyncio.CancelledError:
             pass
+        except ConnectionError as e:
+            # MCP 桥等客户端进程退出时的正常 EOF/断开，不算异常
+            logger.info(f"Client disconnected: {addr} ({e})")
         finally:
-            writer.close()
-            await writer.wait_closed()
+            # 对端进程被直接杀死时 close/wait_closed 可能抛 ConnectionResetError（Windows Proactor）
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except ConnectionError as e:
+                logger.debug(f"closing socket of {addr}: {e}")
             print(f"Client disconnected: {addr}")
     
     async def start(self):
