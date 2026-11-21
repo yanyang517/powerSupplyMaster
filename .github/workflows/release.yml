@@ -67,3 +67,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$env:GITHUB_REF_NAME" $env:ARCHIVE --generate-notes --title "$env:GITHUB_REF_NAME"
+
+# re-evaluate this workflow file on discovery
