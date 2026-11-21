@@ -2,6 +2,7 @@ import sys
 import asyncio
 import logging
 import argparse
+from datetime import datetime
 from pathlib import Path
 
 from qasync import QEventLoop, asyncSlot, asyncClose
@@ -24,6 +25,77 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# --- 启动失败的可见性 -------------------------------------------------------
+# 被 --windowed 打成的产物双击时没有控制台，Windows 上 sys.stderr 会是 None，日志因此
+# 静默丢失（实测 CPython 3.13 不抛异常：Handler.handleError 被 `if raiseExceptions and
+# sys.stderr` 短路）。用户只剩「双击没反应」，所以致命的启动错误必须另有不依赖 stderr 的通道。
+LOGS_DIR_NAME = "logs"
+STARTUP_ERROR_FILE_NAME = "startup_error.log"
+
+
+def has_console() -> bool:
+    """stderr 是否真能把日志送到用户眼前。
+
+    不要用 kernel32.GetConsoleWindow() 判断：从 cmd/CI 启动的 --windowed 进程同样继承控制台
+    句柄，会把「其实看得见」误判成看不见。
+    """
+    return callable(getattr(getattr(sys, "stderr", None), "write", None))
+
+
+def startup_error_log_path() -> Path:
+    """<exe 同级>/logs/startup_error.log，与 registry.clients_file_path() 的 frozen 规则一致。
+
+    落在 logs/ 而不是 config/：config/ 是准入名单这类设置的地盘，而这里服务的恰恰是
+    「设置出问题时」；.gitignore 也已为 logs/ 预留。
+    """
+    return Path(sys.executable).resolve().parent / LOGS_DIR_NAME / STARTUP_ERROR_FILE_NAME
+
+
+def show_startup_error_dialog(title: str, text: str) -> bool:
+    """原生错误弹窗，返回是否真的显示过；任何失败都只记日志，不向外抛。
+
+    不用 QMessageBox：本函数在 QApplication 创建之前被调用（--no-gui 下更是压根不创建），
+    而 ctypes + user32 属标准库，不需要事件循环。
+    """
+    if sys.platform != "win32":
+        return False
+    MB_ICONERROR = 0x10
+    MB_SETFOREGROUND = 0x00040000
+    try:
+        import ctypes
+
+        # 显式声明签名：x64 上按默认 int 传递指针会被截断。
+        user32 = ctypes.windll.user32
+        user32.MessageBoxW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
+        user32.MessageBoxW.restype = ctypes.c_int
+        user32.MessageBoxW(None, text, title, MB_ICONERROR | MB_SETFOREGROUND)
+        return True
+    except Exception as e:
+        logger.warning("startup error dialog unavailable: %s", e)
+        return False
+
+
+def report_startup_failure(message: str) -> None:
+    """把致命的启动错误送到 stderr 之外：exe 同级日志文件 + 无控制台时的原生弹窗。
+
+    先落盘再弹窗，弹窗文案里带上日志路径。本函数不向外抛（写不了文件就只剩弹窗），
+    报告的失败不能改变退出码，也不能盖掉原始错误。
+    """
+    log_path = None
+    if getattr(sys, "frozen", False):
+        path = startup_error_log_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(f"[{datetime.now().isoformat(timespec='seconds')}] {message}\n")
+            log_path = path
+        except OSError as e:
+            logger.warning("cannot write startup error log %s: %s", path, e)
+    if not has_console():
+        text = message if log_path is None else f"{message}\n\n详情已记录到：{log_path}"
+        show_startup_error_dialog("powerSupplyMaster 启动失败", text)
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--no-gui', action='store_true', help='Run without GUI (server mode only)')
@@ -44,6 +116,7 @@ def bootstrap_access(clients_arg, lease_ttl: float) -> ClientRegistry:
         registry = ClientRegistry.load(Path(clients_arg) if clients_arg else None)
     except RegistryError as e:
         logger.error("client registry unusable, refusing to start: %s", e)
+        report_startup_failure(str(e))
         raise SystemExit(2)
     use_registry(registry)
     logger.info("client registry: %d client(s), lease ttl %.0fs", len(registry), lease_config.ttl_seconds)
