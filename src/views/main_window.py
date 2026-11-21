@@ -16,6 +16,7 @@ from PySide6.QtCharts import QChart, QChartView, QLineSeries, QAbstractSeries, Q
 from PySide6.QtGui import QColor, QFont, QPainter
 
 from .ui.mainWindow_ui import Ui_MainWindow
+from .access_panel import AccessPanel
 from .dark_dial import DarkDial
 from .floating_window import FloatingWindow
 from . import window_geometry as wg
@@ -46,6 +47,7 @@ class MainWindow(QMainWindow):
 
         self.setupUi()
         self.connect_signal_slots()
+        self.access_panel = AccessPanel(self.ui.groupBox_10, self.ui.groupBox_9)
         self._restore_geometry()
 
         self.floating_window = FloatingWindow()
@@ -282,7 +284,7 @@ class MainWindow(QMainWindow):
         self.ui.voltage_dial.valueChanged.connect(self.on_voltage_dial_value_changed)
         self.ui.connect_Btn.clicked.connect(self.presenter.open_device)
         self.ui.disconnect_Btn.clicked.connect(self.presenter.close_device)
-        self.ui.ouput_ctrl_Btn.clicked.connect(lambda v: self.presenter.set_on_off(v))
+        self.ui.ouput_ctrl_Btn.clicked.connect(self.toggle_output)
 
         self.ui.max_voltage_spinbox.valueChanged.connect(lambda value: self.ui.voltage_spinBox.setMaximum(value))
         self.ui.max_voltage_spinbox.valueChanged.connect(lambda value: self.ui.voltage_dial.setMaximum(value*100))
@@ -383,6 +385,13 @@ class MainWindow(QMainWindow):
         
         # Update chart data
         self._update_chart_data(value, "current")
+
+    def toggle_output(self, checked: bool):
+        """目标值只交给 presenter：写成功才改按钮文案，用户取消接管时保持原样。"""
+        self.presenter.set_on_off(checked)
+
+    def update_output_setting(self, value: bool):
+        self.ui.ouput_ctrl_Btn.setText("关闭输出" if value else "开启输出")
 
     def update_voltage_setting(self, value: float):
         # self.ui.voltage_dial.setValue(value*100)

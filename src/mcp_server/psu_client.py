@@ -1,6 +1,7 @@
 """SocketServer 协议客户端：4 字节大端长度前缀 + JSON。
 
 单条长连接、惰性建连、断连后下一次调用前透明重连重试一次（design D7）。
+每条新连接建立后先 login：控制权按 `client_id` 存续，所以重连后重新登录即可拿回租约。
 """
 import asyncio
 import json
@@ -20,11 +21,24 @@ class PsuProtocolError(Exception):
     """响应帧无法解析或 request_id 不匹配"""
 
 
+class PsuAccessDeniedError(Exception):
+    """登录被服务端拒绝（未登记且无人批准、等级不足、无界面模式下的准入限制）"""
+
+
 class PsuClient:
-    def __init__(self, host: str = "127.0.0.1", port: int = 8888, timeout: float = 5.0):
+    """协议客户端；默认身份即 MCP 桥本身。
+
+    默认申请 L2 而不是 L1：桥的 set_output 走 set_on_off，按归级属 L2，
+    以 L1 登录会让这个工具永远被拒。串口通断不在 L2 之内，仍只在 UI。
+    """
+
+    def __init__(self, host: str = "127.0.0.1", port: int = 8888, timeout: float = 5.0,
+                 client_id: str = "mcp-bridge", tier: str = "L2"):
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.client_id = client_id
+        self.tier = tier
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
         self._lock = asyncio.Lock()
@@ -32,6 +46,23 @@ class PsuClient:
     async def _ensure_connection(self) -> None:
         if self._writer is None:
             self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
+            await self._login()
+
+    async def _login(self) -> None:
+        """在建连的同一把锁内完成登录，避免业务请求抢在身份建立之前发出。"""
+        try:
+            response = await self._exchange({
+                "type": "login",
+                "request_id": uuid.uuid4().hex[:8],
+                "client_id": self.client_id,
+                "tier": self.tier,
+            })
+        except PsuProtocolError as e:
+            raise PsuAccessDeniedError(f"login handshake failed: {e}")
+        if response.get("status") != "success":
+            raise PsuAccessDeniedError(
+                f"login refused for {self.client_id}: {response.get('message') or response}"
+            )
 
     async def _drop_connection(self) -> None:
         if self._writer is not None:
@@ -48,9 +79,12 @@ class PsuClient:
         return data
 
     async def _roundtrip(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        await self._ensure_connection()
+        return await self._exchange(payload)
+
+    async def _exchange(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         request_id = payload["request_id"]
         body = json.dumps(payload).encode("utf-8")
-        await self._ensure_connection()
         self._writer.write(struct.pack(">I", len(body)) + body)
         await asyncio.wait_for(self._writer.drain(), timeout=self.timeout)
 

@@ -8,6 +8,7 @@ from .command_handle_base import CommandHandler, COMMAND_REGISTRY
 from .request_handles import *
 from pydantic import ValidationError
 from .dispatcher import dispatcher
+from .session import hub
 
 # Configure logging
 logging.basicConfig(
@@ -101,7 +102,9 @@ class SocketServer:
         writer: asyncio.StreamWriter
     ):
         addr = writer.get_extra_info('peername')
-        logger.info(f"Client connected: {addr}")
+        peer = f"{addr[0]}:{addr[1]}" if addr else "unknown"
+        session = hub.open(peer)
+        logger.info(f"Client connected: {addr} session={session.session_id}")
         
         try:
             while True:
@@ -112,8 +115,8 @@ class SocketServer:
                     break
                 
                 try:
-                    # Pydantic 验证 + 业务分发
-                    response:BaseModel = await self.dispatcher.dispatch(data)
+                    # Pydantic 验证 + 授权判定 + 业务分发
+                    response:BaseModel = await self.dispatcher.dispatch(data, session)
                     logger.info(f"response: {response}")
                     response_json = response.model_dump_json()
                     logger.info(f"Sending to {addr}: {response_json}")
@@ -136,6 +139,10 @@ class SocketServer:
                 response_data = await self.build_response(response_json)
                 writer.write(response_data)
                 await writer.drain()
+
+                if session.close_after_response:
+                    logger.info(f"Closing session {session.session_id}: admission refused")
+                    break
                 
         except asyncio.CancelledError:
             pass
@@ -143,6 +150,8 @@ class SocketServer:
             # MCP 桥等客户端进程退出时的正常 EOF/断开，不算异常
             logger.info(f"Client disconnected: {addr} ({e})")
         finally:
+            # 会话随连接结束丢弃；控制权不在此处释放（见设计 D1）。
+            hub.close(session)
             # 对端进程被直接杀死时 close/wait_closed 可能抛 ConnectionResetError（Windows Proactor）
             try:
                 writer.close()
