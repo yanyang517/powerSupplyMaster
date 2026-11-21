@@ -38,3 +38,38 @@ TLS：`ssl.create_default_context()` 与 `truststore.SSLContext` 两种上下文
 - `--no-update-check`：本次运行完全不发起检查请求；`--no-gui` 模式下本就不检查。
 - 状态文件 `config/update_state.json`：记录上次成功检查时间与已忽略版本，与窗口位置文件同一存放规则（打包运行时落在 exe 同级 `config/`，源码运行时落在仓库根 `config/`）。删除该文件即回到"从未检查过"的状态。
 - 开发构建（无构建期来源信息）不会收到自动提示；关于页的"立即检查"不受此限制，用于验证本功能本身。
+
+## 为什么探测必须进线程
+
+应用与 Qt 共用 qasync 的一个事件循环，循环里任何一次阻塞都直接表现为界面卡住。探测用的是
+`urllib.request` 同步调用，因此调度层（`src/update/scheduler.py`）把它包进
+`asyncio.to_thread`，结果再回到循环里交给界面回调。
+
+实测方式不是"看着不卡"，而是让假探测在 `to_thread` 里睡 0.3 秒，同时在同一循环里跑一个
+10 ms 的心跳协程：`src/update/test_scheduler.py::TestEventLoopStaysResponsive` 断言探测期间
+心跳不少于 10 次。若哪天有人把 `to_thread` 改成直接调用，这条用例会立刻失败——界面表现为
+冻结 5 秒（单源超时），而设备控制通路也在同一次冻结里停摆。
+
+## 端到端演练
+
+`scripts/update_notice_rehearsal.py` 在离屏 Qt 上起真界面，配一个本地假清单服务（首选源正常、
+备源端口不通、另有一个返回坏 JSON 的源），走一遍：自动检查出提示 → 间隔内不重复探测 →
+关于页手动检查绕过节流 → 「查看发布页」拿到清单里的地址 → 「忽略此版本」落盘 → 用同一状态文件
+重建控制器后不再提示 → 清单不可用时把失败说成失败。
+
+清单里"发布"的版本取当前真源 +1，等价于任务里说的"把本地版本改低一档"，但不动版本真源、
+不需要还原任何文件。演练期间 `update_settings.sources` 被整体换成本地地址，一次真实外网请求都不发。
+
+```powershell
+.venv\Scripts\python.exe scripts\update_notice_rehearsal.py
+```
+
+截图落在本 change 的 `evidence/`：`rehearsal_status_notice.png`（状态栏提示条与两个动作按钮）、
+`rehearsal_about_manual_check.png`（关于页检查行与结果）、`rehearsal_dismissed.png`（忽略后的手动检查结果）。
+
+离屏平台没有中文字体，截图里的中文一律渲染成方框，这是既有限制（见 `doc/version_info.md`）：
+图能证明布局与可见性，不能证明字形。文案本身由用例断言，不靠看图。
+
+「查看发布页」的真实外启走 `QDesktopServices.openUrl`。演练用注入式记录器断言它拿到的正是清单里
+`release_urls` 给出的地址，不会真的弹出浏览器——那会打断使用者。
+

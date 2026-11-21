@@ -62,6 +62,25 @@ def test_output_switch_state_rule_is_scoped_to_its_object_name():
     )
 
 
+def test_update_notice_rules_are_scoped_and_dim_matched():
+    """状态栏提示条：配色只按 objectName 限定，文字色与状态栏既有 text_dim 同值。
+
+    提示条挂在 QStatusBar 里，裸 QLabel/QPushButton 选择器会把读数标签与
+    所有按钮一起改掉，所以这里同时盯"限定"和"对比度一致"两件事。
+    """
+    qss = build_qss(MODE)
+    t = tokens(MODE)
+    for name in ("update_notice_widget", "update_notice_label",
+                 "update_notice_result_label", "update_notice_button"):
+        assert f"#{name}" in qss, name
+    block = re.search(r"#update_notice_label\s*\{[^}]*\}", qss).group(0)
+    assert f"color: {t['text_dim']}" in block
+    status_block = re.search(r"QStatusBar\s*\{[^}]*\}", qss).group(0)
+    assert f"color: {t['text_dim']}" in status_block, (
+        "notice text must keep the same contrast as the existing status bar text"
+    )
+
+
 def test_build_palette_matches_tokens():
     t = tokens(MODE)
     palette = build_palette(MODE)

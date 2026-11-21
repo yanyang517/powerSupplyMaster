@@ -20,6 +20,7 @@ import version
 from .access_panel import AccessPanel
 from .dark_dial import DarkDial
 from .floating_window import FloatingWindow
+from .update_notice import ManualCheckRow, UpdateNoticeWidget
 from . import window_geometry as wg
 
 # Configure logging
@@ -92,7 +93,16 @@ class MainWindow(QMainWindow):
         ):
             layout.addWidget(self._about_line(text))
 
+        # 「立即检查」行：后台节流提示在开发机上几乎不会出声，手动入口才是可验证的那一个。
+        self.update_manual_row = ManualCheckRow(self.ui.tab_about)
+        layout.addWidget(self.update_manual_row)
+
         layout.addStretch(1)
+
+        self.update_notice = UpdateNoticeWidget(self)
+        # addWidget 而不是 showMessage：状态栏的瞬时消息通道会被任何一次
+        # showMessage 覆盖，更新提示需要一直挂在栏上直到用户处置。
+        self.ui.statusbar.addWidget(self.update_notice)
 
     def _about_line(self, text: str) -> QLabel:
         label = QLabel(text)

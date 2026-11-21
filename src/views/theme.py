@@ -277,6 +277,36 @@ _ABOUT_TEMPLATE = """
 }}
 """
 
+# 更新提示条：文字与状态栏既有配色一致（text_dim），只有动作按钮用主色提亮，
+# 让"这是一条可点的提示"从颜色上成立，而不是靠字号。
+_UPDATE_TEMPLATE = """
+#update_notice_widget {{
+    background-color: {surface_alt};
+    border: 1px solid {border};
+    border-radius: {radius_small};
+}}
+
+#update_notice_label {{
+    color: {text_dim};
+}}
+
+#update_notice_result_label {{
+    color: {text_dim};
+}}
+
+#update_notice_button {{
+    color: {primary};
+    background-color: transparent;
+    border: 1px solid {border_strong};
+    border-radius: {radius_small};
+    padding: 0 {gap_small};
+}}
+
+#update_notice_button:hover {{
+    background-color: {hover};
+}}
+"""
+
 
 def tokens(mode: str = "dark") -> dict:
     try:
@@ -296,6 +326,7 @@ def build_qss(mode: str = "dark") -> str:
         )
     qss += _OUTPUT_SWITCH_TEMPLATE.format(**t)
     qss += _ABOUT_TEMPLATE.format(**t)
+    qss += _UPDATE_TEMPLATE.format(**t)
     return qss
 
 

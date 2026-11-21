@@ -16,6 +16,7 @@ from views.main_window import MainWindow
 from views.theme import build_palette, build_qss
 from presenter.presenter import Presenter
 from presenter.model import PowerSupplyModel
+from views import update_notice
 import version
 
 # Configure logging
@@ -74,7 +75,14 @@ def main(args=None):
         # window.show()
 
         presenter = Presenter(MainWindow)
-        
+
+        # 更新提示：只在 GUI 模式接线，--no-gui 通路一次网络请求都不发。
+        notifier = update_notice.attach(presenter.view, enabled=update_check_enabled)
+        if update_check_enabled:
+            notifier.start()
+        else:
+            logger.info("update check disabled by --no-update-check")
+
         loop.create_task(server_main())
         with loop:
             loop.run_forever()
