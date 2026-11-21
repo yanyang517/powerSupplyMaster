@@ -41,6 +41,7 @@ _TAB_GLYPHS = {
     "tab_wave": "tabler/wave-sine",
     "tab_client": "tabler/users",
     "tab_floating": "tabler/picture-in-picture",
+    "tab_record": "tabler/clock",
     "tab_about": "lucide/info",
 }
 
@@ -77,13 +78,15 @@ class MainWindow(QMainWindow):
         self.ui.setupUi(self)
         self.ui.tabWidget.setTabShape(QTabWidget.TabShape.Rounded)
         self._swap_voltage_dial()
-        self._apply_tab_icons()
         self._apply_button_icons()
 
         # Initialize the chart in groupBox_8
         self._setup_chart()
         self._fill_about_tab()
         self._mount_record_tab()
+        # 页签图标要排在记录页挂载之后刷：那一页是代码 addTab 上来的，
+        # 早一步刷图标会静默漏掉它（映射表按 objectName 认页）。
+        self._apply_tab_icons()
 
         available_ports, perfered_index = self.presenter.get_available_ports()
         self.ui.com_num_comboBox.addItems(available_ports)
@@ -95,6 +98,7 @@ class MainWindow(QMainWindow):
         presenter 显式调 update_recording_state() 触发。
         """
         self.record_panel = RecordPanel(self.ui.tabWidget)
+        self.record_panel.setObjectName("tab_record")
         self.ui.tabWidget.addTab(self.record_panel, "记录")
         self.record_panel.enable_requested.connect(self.presenter.set_recording_enabled)
 
@@ -153,11 +157,13 @@ class MainWindow(QMainWindow):
     def _apply_tab_icons(self):
         tabs = self.ui.tabWidget
         tabs.setIconSize(QSize(ICON_PX, ICON_PX))
-        for name, glyph in _TAB_GLYPHS.items():
-            page = getattr(self.ui, name, None)
-            if page is None:
+        # 按页签自己的 objectName 认字形：记录页是代码 addTab 上来的，
+        # 不在 ui 控件里，按属性名去找它会静默漏掉一整页。
+        for index in range(tabs.count()):
+            glyph = _TAB_GLYPHS.get(tabs.widget(index).objectName())
+            if glyph is None:
                 continue
-            tabs.setTabIcon(tabs.indexOf(page), icons.icon(glyph, "text", ICON_PX))
+            tabs.setTabIcon(index, icons.icon(glyph, "text", ICON_PX))
 
     def _apply_button_icons(self):
         for button, glyph, role in (
