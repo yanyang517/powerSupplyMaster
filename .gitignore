@@ -55,6 +55,8 @@ htmlcov/
 
 # local configuration files
 config.json
+# 应用运行时写回的窗口位置，属本机状态而非配置基线
+config/window_geometry.json
 
 # other
 .DS_Store
