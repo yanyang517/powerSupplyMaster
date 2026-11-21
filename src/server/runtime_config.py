@@ -5,6 +5,9 @@
 """
 from dataclasses import dataclass
 
+# TCP 控制服务的监听端口；8888 是最常被占用的开发备用端口，避开它。
+SERVER_PORT = 18888
+
 
 @dataclass
 class RuntimeConfig:

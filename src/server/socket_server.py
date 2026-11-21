@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from construct import Struct, Int32ub, Bytes, this
 from .command_handle_base import CommandHandler, COMMAND_REGISTRY
 from .request_handles import *
+from .runtime_config import SERVER_PORT
 from pydantic import ValidationError
 from .dispatcher import dispatcher
 from .session import hub
@@ -28,7 +29,7 @@ MessageProtocol = Struct(
 
 
 class SocketServer:
-    def __init__(self, host: str = "0.0.0.0", port: int = 8888):
+    def __init__(self, host: str = "0.0.0.0", port: int = SERVER_PORT):
         self.host = host
         self.port = port
         self.dispatcher = dispatcher

@@ -10,6 +10,8 @@ import struct
 import uuid
 from typing import Any, Dict, Optional
 
+from server.runtime_config import SERVER_PORT
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,7 +34,7 @@ class PsuClient:
     以 L1 登录会让这个工具永远被拒。串口通断不在 L2 之内，仍只在 UI。
     """
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 8888, timeout: float = 5.0,
+    def __init__(self, host: str = "127.0.0.1", port: int = SERVER_PORT, timeout: float = 5.0,
                  client_id: str = "mcp-bridge", tier: str = "L2"):
         self.host = host
         self.port = port

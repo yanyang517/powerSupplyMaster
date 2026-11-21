@@ -16,7 +16,7 @@ AI 客户端 --stdio--> mcp_server（按需拉起） --TCP JSON(4B长度前缀)-
 ## 前置条件
 
 1. 已安装依赖：`pip install -r requirements.txt`（含 `mcp` SDK，要求 Python ≥ 3.10）。
-2. powerSupplyMaster 常驻运行（GUI 或 `python src/app.py --no-gui`），默认监听 `127.0.0.1:8888`。
+2. powerSupplyMaster 常驻运行（GUI 或 `python src/app.py --no-gui`），默认监听 `127.0.0.1:18888`。
 3. 在 UI 中完成串口连接（AI 侧无需处理，未连接时工具会返回引导提示）。
 4. 桥的身份 `mcp-bridge` 已在随附的 `config/clients.json` 中预置。换机器、换登记表或改 `client_id` 时，需带界面运行一次并在准入弹窗中确认，或先把条目写进登记表（无界面模式下 L1/L2 准入一律被拒）。
 
@@ -65,7 +65,7 @@ UI 内动态编辑限值的能力规划在后续 change。
 
 | 提示 | 含义 | 处理 |
 |---|---|---|
-| 电源控制应用未运行 | MCP 桥连不上 127.0.0.1:8888 | 启动 powerSupplyMaster |
+| 电源控制应用未运行 | MCP 桥连不上 127.0.0.1:18888 | 启动 powerSupplyMaster |
 | 设备未连接，请在 UI 中连接串口 | server 在跑但串口未开 | 在 GUI 里选择串口并连接 |
 | voltage X V out of allowed range | 超出限值 | 按提示范围调整重试 |
 | 电源控制应用拒绝了本桥的登录 | 该 `client_id` 未登记，且没有可批准的界面（`no_approver`） | 带界面运行并在准入弹窗确认，或把条目写进 `config/clients.json` |

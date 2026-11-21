@@ -19,7 +19,7 @@ from . import tools
 from .psu_client import PsuAccessDeniedError, PsuClient, PsuUnavailableError
 
 HOST = "127.0.0.1"
-PORT = 18899  # 测试专用端口，避开默认 8888
+PORT = 18899  # 测试专用端口，避开默认 18888
 
 
 @pytest.fixture(autouse=True)

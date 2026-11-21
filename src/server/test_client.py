@@ -6,6 +6,7 @@ import pytest_asyncio
 from typing import Tuple
 from construct import Struct, Int32ub, Bytes, this
 
+from .runtime_config import SERVER_PORT
 from .protocal.protocal import (
     BaseModel, BaseRequest,
     EchoRequest,
@@ -43,7 +44,7 @@ MessageProtocol = Struct(
 class JsonSocketClient:
     """JSON protocol socket client with construct-based message parsing"""
     
-    def __init__(self, host: str = '127.0.0.1', port: int = 8888):
+    def __init__(self, host: str = '127.0.0.1', port: int = SERVER_PORT):
         self.host = host
         self.port = port
         self.client_id = CLIENT_ID

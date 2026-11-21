@@ -30,7 +30,7 @@ async def _request(request_type: str, **fields: Any) -> Dict[str, Any]:
         response = await client.request(request_type, **fields)
     except PsuUnavailableError as e:
         raise ToolError(
-            f"电源控制应用未运行或连接中断。请先启动 powerSupplyMaster（默认监听 127.0.0.1:8888），再重试。({e})"
+            f"电源控制应用未运行或连接中断。请先启动 powerSupplyMaster（默认监听 127.0.0.1:18888），再重试。({e})"
         )
     except PsuAccessDeniedError as e:
         raise ToolError(
