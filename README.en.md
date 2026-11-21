@@ -76,16 +76,14 @@ The bundled MCP server lets an AI client read and drive the supply through natur
 
 1. Run `powerSupplyMaster` (GUI or `--no-gui`) so the TCP server is listening.
 2. Connect the serial port in the UI once.
-3. Add to your MCP client config:
+3. Install the bridge package `psu-mcp` (offline wheel basket: see [doc/mcp_integration.md](doc/mcp_integration.md); repo developers: `pip install -e packages/psu-mcp`).
+4. Add to your MCP client config:
 
 ```json
 {
   "mcpServers": {
     "power-supply": {
-      "command": "<repo>/.venv/Scripts/python.exe",
-      "args": ["-m", "mcp_server"],
-      "cwd": "<repo>/src",
-      "env": { "PYTHONPATH": "<repo>/src" }
+      "command": "psu-mcp"
     }
   }
 }
@@ -127,7 +125,7 @@ src/
 ├── views/              # PySide6 UI (main window, floating window, dark theme, update notice)
 ├── device/             # SCPI serial driver (singleton) + device simulator
 ├── server/             # TCP/JSON socket server, dispatcher, request schema
-├── mcp_server/         # stdio MCP bridge for AI clients
+├── mcp_server/         # wire-protocol regression tests for the bridge (code moved to packages/psu-mcp)
 └── update/             # update probing: manifest, comparison, state, scheduler
 update/latest.json      # published release manifest (same file on Gitee and GitHub)
 doc/                    # architecture docs, MCP integration guide

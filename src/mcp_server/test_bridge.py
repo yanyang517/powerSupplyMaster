@@ -1,6 +1,9 @@
-"""MCP 桥集成测试：对真实 SocketServer 的协议客户端与错误映射。
+"""MCP 桥线上协议回归：psu_mcp 包对真实 SocketServer 的互操作。
 
-运行方式（在 src 目录下）：python -m pytest mcp_server/test_bridge.py
+本文件留在主仓库，专职验证包与 app 的协议契约（准入、租约、限值文案、版本上报）；
+psu_client/tools 的纯客户端行为在 packages/psu-mcp/tests 内自测。
+运行方式（在 src 目录下，需先 pip install -e packages/psu-mcp）：
+python -m pytest mcp_server/test_bridge.py
 """
 import asyncio
 import json
@@ -10,14 +13,13 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 import version
 from device.scpi_power_supply import SCPI_PowerSupply
+from psu_mcp import tools
+from psu_mcp.psu_client import PsuAccessDeniedError, PsuClient, PsuUnavailableError
 from server.access import set_approval_handler
 from server.registry import ClientRegistry, use_registry
 from server.runtime_config import runtime_config
 from server.session import hub, lease, lease_config
 from server.socket_server import SocketServer
-
-from . import tools
-from .psu_client import PsuAccessDeniedError, PsuClient, PsuUnavailableError
 
 HOST = "127.0.0.1"
 PORT = 18899  # 测试专用端口，避开默认 18888
@@ -78,6 +80,12 @@ async def start_psu_server():
 
 
 class TestProtocolClient:
+    def test_default_port_tracks_app(self):
+        """包内 DEFAULT_PORT 与应用侧 SERVER_PORT 不允许悄悄漂移（design D3）。"""
+        from psu_mcp.psu_client import DEFAULT_PORT
+        from server.runtime_config import SERVER_PORT
+        assert DEFAULT_PORT == SERVER_PORT
+
     def test_roundtrip_against_real_server(self, monkeypatch):
         make_fake_device(monkeypatch)
 

@@ -10,9 +10,12 @@ import struct
 import uuid
 from typing import Any, Dict, Optional
 
-from server.runtime_config import SERVER_PORT
-
 logger = logging.getLogger(__name__)
+
+# 默认端口与 powerSupplyMaster 应用侧 server/runtime_config.py 的 SERVER_PORT 一致；
+# 两侧一致性由主仓库 src/mcp_server/test_bridge.py 的线上协议回归兜底（design D3）。
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 18888
 
 
 class PsuUnavailableError(Exception):
@@ -34,7 +37,7 @@ class PsuClient:
     以 L1 登录会让这个工具永远被拒。串口通断不在 L2 之内，仍只在 UI。
     """
 
-    def __init__(self, host: str = "127.0.0.1", port: int = SERVER_PORT, timeout: float = 5.0,
+    def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, timeout: float = 5.0,
                  client_id: str = "mcp-bridge", tier: str = "L2"):
         self.host = host
         self.port = port
