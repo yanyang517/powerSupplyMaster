@@ -134,6 +134,11 @@ class VauleResponse(BaseResponse):
     """带值的响应模型"""
     value: Union[float, int, bool, str]
 
+class SettingResponse(BaseResponse):
+    """setting_query 响应：当前生效的设置类命令限值"""
+    max_voltage: float
+    max_current: float
+
 # schema = RequestUnion.model_json_schema()
 # logger.info("Schema 生成成功，深度正常")
 # request_type_adpter = TypeAdapter(RequestUnion)

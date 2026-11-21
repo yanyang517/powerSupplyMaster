@@ -21,13 +21,16 @@ from .protocal.protocal import (
     StatusQueryRequest,
     OnOffQueryRequest,
     DeviceIdQueryRequest,
+    SettingQueryRequest,
     
     SetVoltageRequest,
     SetCurrentRequest,
     SetMaxCurrentRequest,
     SetMaxVoltageRequest,
     SetOnOffRequest,
+    SettingResponse,
 )
+from .runtime_config import runtime_config
 
 # Configure logging
 logging.basicConfig(
@@ -80,13 +83,18 @@ async def handle_logout(request: LogoutRequest) -> BaseModel:
 #                 "timestamp": asyncio.get_event_loop().time()
 #         })
 
+def _device_not_connected(req: BaseRequest) -> BaseResponse:
+    return BaseResponse(request_id=req.request_id, status="error", message="device not connected")
+
 @dispatcher.register("open_device", OpenDeviceRequest)
 async def handle_open_device(req: OpenDeviceRequest) -> BaseResponse:
-    # device_name = req.device_id
-    is_connected = await SCPI_PowerSupply().connect(serial_number=req.serial_number, baudrate=req.baud_rate)
-    # identifier = await SCPI_PowerSupply().get_identifier()
-    logger.info(f"device: ")
-    return BaseResponse(request_id=req.request_id, status="success")
+    psu = SCPI_PowerSupply()
+    is_connected = await psu.connect(serial_number=req.serial_number, baudrate=req.baud_rate)
+    if not is_connected:
+        logger.error(f"Open device failed: {psu.last_error}")
+        return BaseResponse(request_id=req.request_id, status="error", message=f"connect failed: {psu.last_error}")
+    logger.info(f"device connected: {psu.identifier}")
+    return BaseResponse(request_id=req.request_id, status="success", message=psu.identifier)
 
 
 @dispatcher.register("close_device", CloseDeviceRequest)
@@ -98,45 +106,93 @@ async def handle(req: CloseDeviceRequest) -> BaseResponse:
 
 @dispatcher.register("set_voltage", SetVoltageRequest)
 async def handle(req: SetVoltageRequest) -> BaseResponse:
-    voltage = req.value
-    logger.info(f"Set voltage command: {voltage}")
+    psu = SCPI_PowerSupply()
+    if not psu.is_connected:
+        return _device_not_connected(req)
 
-    # Perform actual voltage setting here
-    await SCPI_PowerSupply().set_voltage(voltage)
+    voltage = req.value
+    limit = runtime_config.max_voltage
+    if not 0 <= voltage <= limit:
+        message = f"voltage {voltage:.2f}V out of allowed range 0~{limit:.2f}V"
+        logger.warning(f"Set voltage rejected: {message}")
+        return BaseResponse(request_id=req.request_id, status="error", message=message)
+
+    logger.info(f"Set voltage command: {voltage}")
+    await psu.set_voltage(voltage)
     return VauleResponse(request_id=req.request_id, status="success", value=voltage)
+
+@dispatcher.register("set_current", SetCurrentRequest)
+async def handle(req: SetCurrentRequest) -> BaseResponse:
+    psu = SCPI_PowerSupply()
+    if not psu.is_connected:
+        return _device_not_connected(req)
+
+    current = req.value
+    limit = runtime_config.max_current
+    if not 0 <= current <= limit:
+        message = f"current {current:.3f}A out of allowed range 0~{limit:.3f}A"
+        logger.warning(f"Set current rejected: {message}")
+        return BaseResponse(request_id=req.request_id, status="error", message=message)
+
+    logger.info(f"Set current command: {current}")
+    await psu.set_current(current)
+    return VauleResponse(request_id=req.request_id, status="success", value=current)
 
 @dispatcher.register("set_on_off", SetOnOffRequest)
 async def handle(req: SetOnOffRequest) -> BaseResponse:
+    psu = SCPI_PowerSupply()
+    if not psu.is_connected:
+        return _device_not_connected(req)
+
     status = req.value
     logger.info(f"Set on/off command: {status}")
-
-    # Perform actual on/off setting here
-    await SCPI_PowerSupply().set_on_off(status)
+    await psu.set_on_off(status)
     return VauleResponse(request_id=req.request_id, status="success", value=status)
 
 
+@dispatcher.register("setting_query", SettingQueryRequest)
+async def handle(req: SettingQueryRequest) -> BaseResponse:
+    return SettingResponse(
+        request_id=req.request_id,
+        status="success",
+        max_voltage=runtime_config.max_voltage,
+        max_current=runtime_config.max_current,
+    )
+
 @dispatcher.register("voltage_query", VoltageQueryRequest)
 async def handle(req: VoltageQueryRequest) -> BaseResponse:
-    voltage = await SCPI_PowerSupply().get_voltage()
+    psu = SCPI_PowerSupply()
+    if not psu.is_connected:
+        return _device_not_connected(req)
+    voltage = await psu.get_voltage()
     logger.info(f"Voltage query command: {voltage}")
     return VauleResponse(request_id=req.request_id, status="success", value=voltage)
 
 # current_query
 @dispatcher.register("current_query", CurrentQueryRequest)
 async def handle(req: CurrentQueryRequest) -> BaseResponse:
-    current = await SCPI_PowerSupply().get_current()
+    psu = SCPI_PowerSupply()
+    if not psu.is_connected:
+        return _device_not_connected(req)
+    current = await psu.get_current()
     logger.info(f"Current query command: {current}")
     return VauleResponse(request_id=req.request_id, status="success", value=current)
 
 # on_off_query
 @dispatcher.register("on_off_query", OnOffQueryRequest)
 async def handle(req: OnOffQueryRequest) -> BaseResponse:
-    status = await SCPI_PowerSupply().get_on_off()
+    psu = SCPI_PowerSupply()
+    if not psu.is_connected:
+        return _device_not_connected(req)
+    status = await psu.get_on_off()
     logger.info(f"Status query command: {status}")
     return VauleResponse(request_id=req.request_id, status="success", value=status)
 
 @dispatcher.register("device_id_query", DeviceIdQueryRequest)
 async def handle(req: DeviceIdQueryRequest) -> BaseResponse:
-    device_id = await SCPI_PowerSupply().get_identifier()
+    psu = SCPI_PowerSupply()
+    if not psu.is_connected:
+        return _device_not_connected(req)
+    device_id = await psu.get_identifier()
     logger.info(f"Device ID query command: {device_id}")
     return VauleResponse(request_id=req.request_id, status="success", value=device_id)
