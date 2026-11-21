@@ -307,6 +307,23 @@ _UPDATE_TEMPLATE = """
 }}
 """
 
+# 记录页：状态与目录是次要信息（text_dim），只有"记录已中止"用危险色——
+# 它意味着这段数据不完整，用户需要立刻分辨出来。
+_RECORD_TEMPLATE = """
+#record_status_label {{
+    color: {text};
+    font-weight: bold;
+}}
+
+#record_dir_label {{
+    color: {text_dim};
+}}
+
+#record_error_label {{
+    color: {danger};
+}}
+"""
+
 
 def tokens(mode: str = "dark") -> dict:
     try:
@@ -327,6 +344,7 @@ def build_qss(mode: str = "dark") -> str:
     qss += _OUTPUT_SWITCH_TEMPLATE.format(**t)
     qss += _ABOUT_TEMPLATE.format(**t)
     qss += _UPDATE_TEMPLATE.format(**t)
+    qss += _RECORD_TEMPLATE.format(**t)
     return qss
 
 

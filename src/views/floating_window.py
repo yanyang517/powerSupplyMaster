@@ -17,7 +17,9 @@ class FloatingWindow(QMainWindow):
         self.ui = Ui_Dialog()
         self.ui.setupUi(self._central_widget)
         self.current_value = 0.0
+        self.voltage_value = 0.0
         self.output_value = True
+        self._stale = False
 
         self._transparency = 0.2
 
@@ -112,13 +114,28 @@ class FloatingWindow(QMainWindow):
 
     @Slot(float)
     def update_voltage(self, voltage: float):
-        self.ui.voltage_label.setText(f"{voltage:.2f} V")
+        self.voltage_value = voltage
+        if not self._stale:
+            self.ui.voltage_label.setText(f"{voltage:.2f} V")
     
     @Slot(float)
     def update_current(self, current: float):
         self.current_value = current
+        if self._stale:
+            return
         if self.output_value:
             self.ui.current_label.setText(f"{current:.2f} A")
+
+    @Slot(bool)
+    def update_stale(self, stale: bool):
+        """采集中断时把读数打成占位符：置顶小窗停在旧值上，最容易被误读成一切正常。"""
+        self._stale = stale
+        if stale:
+            self.ui.voltage_label.setText("-- V")
+            self.ui.current_label.setText("-- A")
+            return
+        self.ui.voltage_label.setText(f"{self.voltage_value:.2f} V")
+        self.update_output(self.output_value)
 
     @Slot(float, float)
     def update_values(self, voltage: float, current: float):

@@ -17,9 +17,11 @@ from PySide6.QtGui import QColor, QFont, QPainter
 
 from .ui.mainWindow_ui import Ui_MainWindow
 import version
+from recording.processing import trim_to_window
 from .access_panel import AccessPanel
 from .dark_dial import DarkDial
 from .floating_window import FloatingWindow
+from .record_panel import RecordPanel
 from .update_notice import ManualCheckRow, UpdateNoticeWidget
 from . import window_geometry as wg
 
@@ -38,9 +40,8 @@ class MainWindow(QMainWindow):
 
         # Data storage for chart
         self.max_data_points = 100  # Maximum number of data points to display
-        self.voltage_data = [0.0] * self.max_data_points
-        self.current_data = [0.0] * self.max_data_points
-        self.time_data = list(range(self.max_data_points))
+        self.voltage_data = []
+        self.current_data = []
         self.voltage_data_count = 0
         self.current_data_count = 0
         
@@ -66,9 +67,24 @@ class MainWindow(QMainWindow):
         # Initialize the chart in groupBox_8
         self._setup_chart()
         self._fill_about_tab()
+        self._mount_record_tab()
 
         available_ports, perfered_index = self.presenter.get_available_ports()
         self.ui.com_num_comboBox.addItems(available_ports)
+
+    def _mount_record_tab(self):
+        """.ui 里没有「记录」这一页，整页在代码侧 addTab 挂上（同 _swap_voltage_dial 的约定）。
+
+        这里只建控件：状态要等 Presenter 把 recorder 装好才存在，首轮渲染由
+        presenter 显式调 update_recording_state() 触发。
+        """
+        self.record_panel = RecordPanel(self.ui.tabWidget)
+        self.ui.tabWidget.addTab(self.record_panel, "记录")
+        self.record_panel.enable_requested.connect(self.presenter.set_recording_enabled)
+
+    def update_recording_state(self):
+        """把 presenter 的记录快照原样交给面板渲染，视图侧不自行判断。"""
+        self.record_panel.render(self.presenter.recording_status())
 
     def _fill_about_tab(self):
         """在 uic 生成的空「关于」页上挂版本信息。
@@ -178,6 +194,8 @@ class MainWindow(QMainWindow):
         )
 
     def closeEvent(self, event):
+        # 关窗算正常收尾：会话要以 closed 落清单，否则下次启动只能改判成 interrupted。
+        self.presenter.stop_recording()
         self._save_geometry()
         super().closeEvent(event)
 
@@ -456,14 +474,11 @@ class MainWindow(QMainWindow):
         
         # Add new data point
         if data_type == "voltage":
-            self.voltage_series.append(QPointF(self.voltage_data_count, value))
             self.voltage_data_count += 1
+            self.voltage_data = trim_to_window(self.voltage_data + [value], self.max_data_points)
+            self.voltage_series.replace(
+                self._window_points(self.voltage_data, self.voltage_data_count))
 
-            self.voltage_data.append(value)
-            # Keep only the last max_data_points
-            if len(self.voltage_data) > self.max_data_points:
-                self.voltage_data.pop(0)
-                
             # Update X axis range to show rolling window effect
             x_min = self.voltage_data_count - self.max_data_points if self.voltage_data_count > self.max_data_points else 0
             x_max = self.voltage_data_count if self.voltage_data_count > 100 else 100
@@ -476,14 +491,10 @@ class MainWindow(QMainWindow):
             # self.voltage_axis_y.setRange(max(0, min_voltage - padding), max_voltage + padding)
             
         elif data_type == "current":
-            self.current_series.append(QPointF(self.current_data_count, value))
             self.current_data_count += 1
-
-            self.current_data.append(value)
-            # Keep only the last max_data_points
-            if len(self.current_data) > self.max_data_points:
-                self.current_data.pop(0)
-            
+            self.current_data = trim_to_window(self.current_data + [value], self.max_data_points)
+            self.current_series.replace(
+                self._window_points(self.current_data, self.current_data_count))
             # Update X axis range to show rolling window effect
             x_min = self.current_data_count - self.max_data_points if self.current_data_count > self.max_data_points else 0
             x_max = self.current_data_count if self.current_data_count > 100 else 100
@@ -494,3 +505,21 @@ class MainWindow(QMainWindow):
             # min_current = min(self.current_data) if self.current_data else 0
             # padding = (max_current - min_current) * 0.1 if max_current != min_current else 0.2
             # self.current_axis_y.setRange(max(0, min_current - padding), max_current + padding)
+
+    def _window_points(self, values, count):
+        """给窗口内的每个值配回它的全局采样序号，整段替换进序列。
+
+        QLineSeries::append 不会替滚动窗口让路，所以这里不追加而是替换：
+        序列里永远只有最后 max_data_points 个点。
+        """
+        start = count - len(values)
+        return [QPointF(start + offset, value) for offset, value in enumerate(values)]
+
+    def update_sampling_error(self, message):
+        """采集中断必须看得见：读数停在最后一次成功值而不加提示，等于谎报正常。"""
+        if message:
+            self.ui.statusbar.showMessage(f"通信异常：{message}（采样仍在重试）")
+            self.floating_window.update_stale(True)
+            return
+        self.ui.statusbar.clearMessage()
+        self.floating_window.update_stale(False)
