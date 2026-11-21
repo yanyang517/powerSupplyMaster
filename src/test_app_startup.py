@@ -77,3 +77,43 @@ class TestVersionLogging:
         with caplog.at_level(logging.INFO, logger="app"):
             app_module.logger.info(version_module.summary())
         assert version_module.__version__ in caplog.text
+
+
+class TestIconDegradation:
+    """图标资源缺失不得影响启动（design.md D4）。
+
+    失败形态必须只是"没有图标"：打包后资源路径一变，最坏可以是难看，不能是不能用。
+    """
+
+    @pytest.fixture
+    def qapp(self):
+        import os
+
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+
+        return QApplication.instance() or QApplication([])
+
+    @pytest.fixture
+    def empty_resources(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(app_module.icons, "resources_dir", lambda: tmp_path / "resources")
+        monkeypatch.setattr("views.window_geometry.geometry_file_path",
+                            lambda: tmp_path / "window_positions.json")
+        return tmp_path
+
+    def test_missing_mark_yields_null_but_usable_window_icon(self, empty_resources, qapp):
+        icon = app_module.icons.app_icon()
+        assert icon.isNull()
+        qapp.setWindowIcon(icon)  # 与 app.main() 里同一句调用，不得抛
+
+    def test_floating_window_still_builds_without_resources(self, empty_resources, qapp):
+        """设图标不得改变悬浮窗的窗口属性：它必须还是无边框 + 置顶。"""
+        from PySide6.QtCore import Qt
+
+        from views.floating_window import FloatingWindow
+
+        window = FloatingWindow()
+        assert window.windowIcon().isNull()
+        flags = window.windowFlags()
+        assert flags & Qt.WindowType.FramelessWindowHint
+        assert flags & Qt.WindowType.WindowStaysOnTopHint

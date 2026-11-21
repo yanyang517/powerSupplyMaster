@@ -15,6 +15,7 @@
 - **设备模拟器** — 独立进程的 SCPI 虚拟电源，配合虚拟串口即可在无硬件环境下开发与联调。
 - **无头模式** — `--no-gui` 仅运行控制服务。
 - **版本标识与更新提示** — 版本号唯一定义在 `src/version.py`，出现在窗口标题、关于页、启动日志、exe 文件属性与 `setting_query`/MCP 返回值中；后台按 `update/latest.json` 清单检查新版本，只在状态栏提示，不下载、不自动替换（`--no-update-check` 或 `--no-gui` 时不探测）。详见 [doc/version_info.md](doc/version_info.md)、[doc/update_notice.md](doc/update_notice.md)。
+- **图标与应用标识** — 界面图标是 vendored 的开源线稿字形（Tabler 3.52.0 / MIT、Lucide 1.77.0 / ISC，共 18 个），取色走主题 token、线宽按尺寸档位调整，缺失时降级为无图标而不是中断启动；应用标识为原创的实心圆角方块 + ⏻ 镂空，窗口图标与 exe 的 `app.ico` 都由同一份 SVG 派生（`scripts/gen_icon.py`）。来源、版本与落点清单见 [src/resources/NOTICE.md](src/resources/NOTICE.md)。
 
 ## 架构
 

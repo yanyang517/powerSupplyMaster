@@ -27,6 +27,16 @@ _FORBIDDEN_QSS_DECLARATIONS = (
 _HEX_COLOR = re.compile(r"#[0-9a-fA-F]{6}\b")
 
 
+@pytest.fixture(scope="module")
+def qapp():
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    return QApplication.instance() or QApplication([])
+
+
 def test_build_qss_is_not_empty():
     assert build_qss(MODE).strip()
 
@@ -107,3 +117,34 @@ def test_no_literal_colors_outside_the_token_table():
     declared = {v.lower() for v in TOKENS[MODE].values() if isinstance(v, str)}
     undeclared = {c.lower() for c in _HEX_COLOR.findall(source)} - declared
     assert not undeclared, f"hard-coded colors outside TOKENS: {sorted(undeclared)}"
+
+
+def test_icon_pixels_recolor_with_the_token_table(qapp, monkeypatch):
+    """改 token 必须改到图标像素：图标层若把色值抄死，这条会在像素层面失败。
+
+    只统计 alpha 打满的像素——抗锯齿边缘是同一色值乘不同覆盖率，比对色值没有意义。
+    """
+    from PySide6.QtGui import QImage
+
+    from views import icons
+
+    def solid_colors(rgb):
+        pm = icons.pixmap("tabler/power", "text", 24)
+        assert pm is not None, "vendored glyph failed to render"
+        img = pm.toImage().convertToFormat(QImage.Format.Format_ARGB32)
+        found = set()
+        for y in range(img.height()):
+            for x in range(img.width()):
+                pixel = img.pixelColor(x, y)
+                if pixel.alpha() >= 250:
+                    found.add(pixel.name().lower())
+        assert found, "no opaque pixel produced"
+        assert found == {rgb}, f"unexpected icon colors: {sorted(found)}"
+        return found
+
+    solid_colors(tokens(MODE)["text"].lower())
+
+    recolored = dict(TOKENS[MODE])
+    recolored["text"] = "#ff00ff"
+    monkeypatch.setattr(icons, "tokens", lambda mode=MODE: recolored)
+    solid_colors("#ff00ff")

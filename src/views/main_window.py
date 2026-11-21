@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
 )
 
-from PySide6.QtCore import Slot, QTimer, Qt, QPointF
+from PySide6.QtCore import Slot, QTimer, Qt, QPointF, QSize
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QAbstractSeries, QValueAxis
 from PySide6.QtGui import QColor, QFont, QPainter
 
@@ -21,6 +21,7 @@ from .access_panel import AccessPanel
 from .dark_dial import DarkDial
 from .floating_window import FloatingWindow
 from .update_notice import ManualCheckRow, UpdateNoticeWidget
+from . import icons
 from . import window_geometry as wg
 
 # Configure logging
@@ -29,6 +30,17 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+ICON_PX = 16
+
+# 页签字形按 objectName 映射：页序变动时不至于静默错位到别的页签上。
+_TAB_GLYPHS = {
+    "tab_control": "lucide/gauge",
+    "tab_wave": "tabler/wave-sine",
+    "tab_client": "tabler/users",
+    "tab_floating": "tabler/picture-in-picture",
+    "tab_about": "lucide/info",
+}
 
 class MainWindow(QMainWindow):
     def __init__(self, presenter = None):
@@ -53,6 +65,8 @@ class MainWindow(QMainWindow):
         self._restore_geometry()
 
         self.floating_window = FloatingWindow()
+        self.floating_window.request_show_main.connect(self._show_main_window)
+        self.floating_window.request_output_off.connect(self._turn_output_off)
         self.floating_window.show()
 
         self._voltage_is_updating = False
@@ -62,6 +76,8 @@ class MainWindow(QMainWindow):
         self.ui.setupUi(self)
         self.ui.tabWidget.setTabShape(QTabWidget.TabShape.Rounded)
         self._swap_voltage_dial()
+        self._apply_tab_icons()
+        self._apply_button_icons()
 
         # Initialize the chart in groupBox_8
         self._setup_chart()
@@ -81,6 +97,14 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(self.ui.tab_about)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(6)
+
+        # 标识放最上方；渲染失败就整块不挂，留个空 QLabel 会在标题前顶出一段空白。
+        mark = icons.mark_pixmap(48)
+        if mark is not None:
+            mark_label = QLabel(self.ui.tab_about)
+            mark_label.setObjectName("about_mark_label")
+            mark_label.setPixmap(mark)
+            layout.addWidget(mark_label)
 
         title = QLabel(f"powerSupplyMaster {version.display_version()}")
         title.setObjectName("about_title_label")
@@ -109,6 +133,32 @@ class MainWindow(QMainWindow):
         label.setObjectName("about_meta_label")
         label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         return label
+
+    def _apply_tab_icons(self):
+        tabs = self.ui.tabWidget
+        tabs.setIconSize(QSize(ICON_PX, ICON_PX))
+        for name, glyph in _TAB_GLYPHS.items():
+            page = getattr(self.ui, name, None)
+            if page is None:
+                continue
+            tabs.setTabIcon(tabs.indexOf(page), icons.icon(glyph, "text", ICON_PX))
+
+    def _apply_button_icons(self):
+        for button, glyph, role in (
+            (self.ui.connect_Btn, "lucide/plug", "primary"),
+            (self.ui.disconnect_Btn, "tabler/plug-off", "danger"),
+        ):
+            button.setIconSize(QSize(ICON_PX, ICON_PX))
+            button.setIcon(icons.icon(glyph, role, ICON_PX))
+        self.ui.ouput_ctrl_Btn.setIconSize(QSize(ICON_PX, ICON_PX))
+        self.ui.ouput_ctrl_Btn.toggled.connect(self._set_output_icon)
+        self._set_output_icon(self.ui.ouput_ctrl_Btn.isChecked())
+
+    def _set_output_icon(self, checked: bool):
+        """输出开关两态同字形、只换色：它已有 2px 边框 + 字重 + 文字三重形态线索。"""
+        self.ui.ouput_ctrl_Btn.setIcon(
+            icons.icon("tabler/power", "success" if checked else "text", ICON_PX)
+        )
 
     def _swap_voltage_dial(self):
         """把 uic 生成的 QDial 换成自绘的 DarkDial。
@@ -432,6 +482,15 @@ class MainWindow(QMainWindow):
     def toggle_output(self, checked: bool):
         """目标值只交给 presenter：写成功才改按钮文案，用户取消接管时保持原样。"""
         self.presenter.set_on_off(checked)
+
+    def _show_main_window(self):
+        """最小化状态下 raise_() 单独不起作用，必须先 showNormal()。"""
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def _turn_output_off(self):
+        self.presenter.set_on_off(False)
 
     def update_output_setting(self, value: bool):
         self.ui.ouput_ctrl_Btn.setText("关闭输出" if value else "开启输出")
