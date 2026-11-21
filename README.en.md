@@ -15,6 +15,7 @@ Connect over serial (pyserial) to any SCPI-speaking bench supply (developed agai
 - **Device simulator** — a standalone SCPI simulator process (with virtual serial ports) for development and integration testing without hardware.
 - **Headless mode** — `--no-gui` runs the control server alone.
 - **Version identity and update notice** — the version is defined once in `src/version.py` and surfaced in the window title, About page, startup log, exe file properties and the `setting_query`/MCP responses. A background check reads the `update/latest.json` manifest and only shows a status-bar notice — it never downloads or replaces anything (skipped with `--no-update-check` or `--no-gui`). See [doc/version_info.md](doc/version_info.md) and [doc/update_notice.md](doc/update_notice.md).
+- **Icons and app identity** — UI icons are vendored open-source line glyphs (Tabler 3.52.0 / MIT, Lucide 1.77.0 / ISC, 18 files), recolored from theme tokens with size-tiered stroke weights; a missing glyph degrades to no icon instead of breaking startup. The app mark is an original solid squircle with a knocked-out power symbol, and both the window icon and the exe's `app.ico` derive from that one SVG (`scripts/gen_icon.py`). Provenance, versions and placement are listed in [src/resources/NOTICE.md](src/resources/NOTICE.md).
 
 ## Architecture
 
