@@ -2,6 +2,7 @@ from PySide6.QtWidgets import QWidget, QMenu, QMainWindow
 from PySide6.QtCore import Qt, Signal, Slot
 
 from .ui.floating_classic_ui import Ui_Dialog
+from . import window_geometry as wg
 
 
 class FloatingWindow(QMainWindow):
@@ -30,6 +31,8 @@ class FloatingWindow(QMainWindow):
         # Set fixed size to match the UI design
         self.setFixedSize(407, 81)
 
+        self._restore_position()
+
         # Set distinct colors for voltage and current labels
         # Voltage: Bright Blue - highly visible on both white and black backgrounds
         self.ui.voltage_label.setStyleSheet("color: rgb(0, 123, 255); font-weight: bold;")
@@ -37,6 +40,17 @@ class FloatingWindow(QMainWindow):
         self.ui.current_label.setStyleSheet("color: rgb(0, 139, 139); font-weight: bold;")
 
         self.repaint()
+
+    def _restore_position(self):
+        """Place the window from history, else at the bottom-right of the screen."""
+        entries = wg.load_entries(wg.geometry_file_path())
+        rect = wg.restored_rect(entries, "floating", self.width(), self.height())
+        if rect is not None:
+            self.move(rect[0], rect[1])
+            return
+        available = wg.primary_available_rect()
+        if available is not None:
+            self.move(*wg.default_floating_pos(available, self.width(), self.height()))
 
     # change transparency when mouse over
     def enterEvent(self, event):

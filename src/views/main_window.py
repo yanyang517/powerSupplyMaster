@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QFont, QPainter
 
 from .ui.mainWindow_ui import Ui_MainWindow
 from .floating_window import FloatingWindow
+from . import window_geometry as wg
 
 # Configure logging
 logging.basicConfig(
@@ -43,6 +44,7 @@ class MainWindow(QMainWindow):
 
         self.setupUi()
         self.connect_signal_slots()
+        self._restore_geometry()
 
         self.floating_window = FloatingWindow()
         self.floating_window.show()
@@ -58,6 +60,30 @@ class MainWindow(QMainWindow):
 
         available_ports, perfered_index = self.presenter.get_available_ports()
         self.ui.com_num_comboBox.addItems(available_ports)
+
+    def _restore_geometry(self):
+        entries = wg.load_entries(wg.geometry_file_path())
+        rect = wg.restored_rect(entries, "main", self.width(), self.height())
+        if rect is None:
+            available = wg.primary_available_rect()
+            if available is None:
+                return
+            rect = wg.default_main_rect(available, self.width(), self.height())
+        self.setGeometry(*rect)
+
+    def _save_geometry(self):
+        floating = self.floating_window
+        wg.save_geometry(
+            wg.geometry_file_path(),
+            self.geometry().getRect(),
+            (floating.x(), floating.y()),
+            wg.screen_name(self),
+            wg.screen_name(floating),
+        )
+
+    def closeEvent(self, event):
+        self._save_geometry()
+        super().closeEvent(event)
     
     def _setup_chart(self):
         """Initialize separate voltage and current charts in groupBox_8"""
