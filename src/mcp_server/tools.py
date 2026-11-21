@@ -52,6 +52,8 @@ async def get_status() -> Dict[str, Any]:
     """读取电源当前状态：电压、电流、输出开关、设备标识与生效的限值范围。
 
     只读操作，不会改变设备状态。设定类工具的允许范围以返回的 limits 为准；
+    limits.server_version 是正在控制这台电源的上位机版本，报障时以它为准，
+    读不到（为 null）说明对端是尚未上报版本号的老版本。
     执行 set_output 前应先调用本工具确认当前状态。
     """
     identifier = (await _request("device_id_query")).get("value")
@@ -59,13 +61,14 @@ async def get_status() -> Dict[str, Any]:
     current = (await _request("current_query")).get("value")
     output_on = (await _request("on_off_query")).get("value")
 
-    limits: Optional[Dict[str, float]] = None
+    limits: Optional[Dict[str, Any]] = None
     try:
         setting = await client.request("setting_query")
         if setting.get("status") == "success":
             limits = {
                 "max_voltage_v": setting.get("max_voltage"),
                 "max_current_a": setting.get("max_current"),
+                "server_version": setting.get("version"),
             }
     except Exception as e:  # 限值是附加信息，失败不阻断状态读取
         logger.info(f"setting_query unavailable: {e}")

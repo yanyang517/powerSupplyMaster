@@ -6,6 +6,7 @@ from typing import Optional, Dict, Any
 # from .command_handle_base import CommandHandler
 
 from device.scpi_power_supply import SCPI_PowerSupply
+import version
 
 from .dispatcher import dispatcher
 from .registry import Tier
@@ -213,11 +214,13 @@ async def handle(req: SetOnOffRequest) -> BaseResponse:
 
 @dispatcher.register("setting_query", SettingQueryRequest, tier=Tier.L0)
 async def handle(req: SettingQueryRequest) -> BaseResponse:
+    # 限值与版本都来自本进程，不碰串口：设备没连上也必须答得出上位机版本。
     return SettingResponse(
         request_id=req.request_id,
         status="success",
         max_voltage=runtime_config.max_voltage,
         max_current=runtime_config.max_current,
+        version=version.__version__,
     )
 
 @dispatcher.register("voltage_query", VoltageQueryRequest, tier=Tier.L0)

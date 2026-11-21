@@ -154,9 +154,14 @@ class VauleResponse(BaseResponse):
     value: Union[float, int, bool, str]
 
 class SettingResponse(BaseResponse):
-    """setting_query 响应：当前生效的设置类命令限值"""
+    """setting_query 响应：当前生效的设置类命令限值，外加服务端实例的应用版本。
+
+    version 是必填项：客户端（含 MCP 桥）靠它判断"连的是哪一版上位机"，
+    漏填不该静默通过模型校验。
+    """
     max_voltage: float
     max_current: float
+    version: str = Field(description="服务端运行实例的应用版本号，取自 src/version.py 真源")
 
 
 class LoginResponse(BaseResponse):

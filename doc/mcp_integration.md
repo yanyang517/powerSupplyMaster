@@ -43,7 +43,7 @@ Qoder Desktop（MCP 配置 JSON，其他客户端同理）：
 
 | 工具 | 参数 | 说明 |
 |---|---|---|
-| `get_status` | 无 | 聚合返回电压(V)、电流(A)、输出开关、设备标识、生效限值 `limits`。只读 |
+| `get_status` | 无 | 聚合返回电压(V)、电流(A)、输出开关、设备标识、生效限值 `limits`；`limits.server_version` 是正在控制本机的上位机版本（老版本为 `null`）。只读 |
 | `set_voltage` | `voltage: float` (V) | 范围以 `limits.max_voltage_v` 为准，超限被拒绝并提示允许范围 |
 | `set_current` | `current: float` (A) | 范围以 `limits.max_current_a` 为准 |
 | `set_output` | `enable: bool` | 接通/断开输出。AI 应先 `get_status` 确认状态 |

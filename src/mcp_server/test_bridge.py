@@ -8,6 +8,7 @@ import json
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
+import version
 from device.scpi_power_supply import SCPI_PowerSupply
 from server.access import set_approval_handler
 from server.registry import ClientRegistry, use_registry
@@ -326,5 +327,26 @@ class TestGetStatus:
             "voltage_v": 12.0,
             "current_a": 0.5,
             "output_on": True,
-            "limits": {"max_voltage_v": 30.0, "max_current_a": 5.0},
+            "limits": {
+                "max_voltage_v": 30.0,
+                "max_current_a": 5.0,
+                "server_version": version.__version__,
+            },
         }
+
+    def test_server_version_follows_the_running_app(self, monkeypatch):
+        """版本号必须现场取自上位机真源，不是桥里抄的一份。"""
+        make_fake_device(monkeypatch)
+
+        async def scenario():
+            srv = await start_psu_server()
+            tools.client = PsuClient(host=HOST, port=PORT, timeout=2.0)
+            try:
+                return await tools.get_status()
+            finally:
+                await tools.client._drop_connection()
+                srv.close()
+                await srv.wait_closed()
+
+        monkeypatch.setattr(version, "__version__", "9.9.9")
+        assert asyncio.run(scenario())["limits"]["server_version"] == "9.9.9"
