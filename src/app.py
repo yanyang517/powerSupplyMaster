@@ -17,7 +17,7 @@ from views.main_window import MainWindow
 from views.theme import build_palette, build_qss
 from presenter.presenter import Presenter
 from presenter.model import PowerSupplyModel
-from views import update_notice
+from views import icons, update_notice
 import version
 
 # Configure logging
@@ -140,6 +140,8 @@ def main(args=None):
         app.setStyle('Fusion')
         app.setPalette(build_palette('dark'))
         app.setStyleSheet(build_qss('dark'))
+        # 图标资源缺失时 app_icon() 返回空 QIcon，Qt 退回系统默认图标，启动不受影响。
+        app.setWindowIcon(icons.app_icon())
     
         loop = QEventLoop(app)
         asyncio.set_event_loop(loop)

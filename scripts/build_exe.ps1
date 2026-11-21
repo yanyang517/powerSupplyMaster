@@ -6,8 +6,9 @@ Output: dist\powerSupplyMaster\powerSupplyMaster.exe
 
 Both runtime config files sit next to the exe, which is where they are looked up when
 sys.frozen is set (see server/registry.py:clients_file_path and views/window_geometry.py).
---add-data is deliberately not used: in onedir mode it lands under _internal\, which does not
-match that lookup rule.
+--add-data is used only for src\resources: icons are read-only build artifacts and belong
+under _internal\resources, which is what views/icons.py:resources_dir resolves to when
+sys.frozen is set. User-editable config must not move there, which is why the two paths differ.
 
 Usage:
   powershell -ExecutionPolicy Bypass -File scripts\build_exe.ps1
@@ -32,6 +33,11 @@ $WorkDir = Join-Path $RepoRoot 'build\pyinstaller'
 $ConfigBackup = Join-Path $RepoRoot 'build\dist-config-backup'
 $BundledRegistry = Join-Path $ConfigDir 'clients.json'
 $SourceRegistry = Join-Path $RepoRoot 'config\clients.json'
+
+# Icons are collected under _internal\resources by --add-data; views/icons.py resolves there.
+$SourceResources = Join-Path $RepoRoot 'src\resources'
+$BundledResources = Join-Path $AppDir '_internal\resources'
+$IconFile = Join-Path $SourceResources 'app.ico'
 
 # COLLECT wipes dist\<Name> and rebuilds it empty, and PowerShell's folder copy nests the source
 # inside the destination when that destination already exists. Both restore paths therefore go
@@ -81,8 +87,40 @@ that does nothing. Seed it from $SourceRegistry (the build does this automatical
     Write-Host "Client registry bundled: $Path ($count entry(ies))"
 }
 
+# Icons vanishing from the package is the worst failure mode this pipeline has: the app still
+# runs, so nothing complains - the UI just quietly loses every glyph. Compare the collected tree
+# against the source tree by relative name so a missing folder or a dropped glyph fails the build.
+function Assert-BundledResources {
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$Destination
+    )
+
+    if (-not (Test-Path -LiteralPath $Destination -PathType Container)) {
+        throw "bundled resources folder is missing: $Destination (--add-data did not collect it)"
+    }
+    foreach ($required in @('app.ico', 'app-mark.svg', 'app-mark-16.svg', 'icons')) {
+        $path = Join-Path $Destination $required
+        if (-not (Test-Path -LiteralPath $path)) {
+            throw "bundled resource is missing: $path"
+        }
+    }
+
+    $sourceFiles = @(Get-ChildItem -Recurse -File -LiteralPath $Source |
+        ForEach-Object { $_.FullName.Substring($Source.Length + 1) })
+    $bundledFiles = @(Get-ChildItem -Recurse -File -LiteralPath $Destination |
+        ForEach-Object { $_.FullName.Substring($Destination.Length + 1) })
+    $missing = @(Compare-Object -ReferenceObject $sourceFiles -DifferenceObject $bundledFiles |
+        Where-Object { $_.SideIndicator -eq '<=' } | ForEach-Object { $_.InputObject })
+    if ($missing.Count -gt 0) {
+        throw ("bundled resources are incomplete, missing: " + ($missing -join ', '))
+    }
+    Write-Host "Resources bundled: $Destination ($($bundledFiles.Count) file(s))"
+}
+
 if ($VerifyOnly) {
     Assert-BundledRegistry $BundledRegistry
+    Assert-BundledResources $SourceResources $BundledResources
     return
 }
 
@@ -109,6 +147,9 @@ try {
 
     if (-not (Test-Path -LiteralPath $SourceRegistry -PathType Leaf)) {
         throw "no client registry to bundle: $SourceRegistry (it is tracked in git, restore it)"
+    }
+    if (-not (Test-Path -LiteralPath $SourceResources -PathType Container)) {
+        throw "no icon resources to bundle: $SourceResources (they are tracked in git, restore them)"
     }
 
     # COLLECT rewrites the whole app folder, so the saved window geometry and the registry the
@@ -138,6 +179,20 @@ try {
     & $VenvPython (Join-Path $RepoRoot 'scripts\make_version_info.py') --out $VersionResource
     if ($LASTEXITCODE -ne 0) { throw "failed to generate version resource (exit $LASTEXITCODE)" }
 
+    # app.ico is derived from app-mark.svg. Regenerate it when it is missing or older than a
+    # mark source, so the committed icon cannot drift away from what the UI renders.
+    $markSources = @(Get-ChildItem -Path $SourceResources -Filter 'app-mark*.svg' -File)
+    $iconStale = ($markSources.Count -eq 0) -or (-not (Test-Path -LiteralPath $IconFile -PathType Leaf))
+    if (-not $iconStale) {
+        $iconTime = (Get-Item -LiteralPath $IconFile).LastWriteTime
+        $iconStale = @($markSources | Where-Object { $_.LastWriteTime -gt $iconTime }).Count -gt 0
+    }
+    if ($iconStale) {
+        Write-Host "Regenerating $IconFile from app-mark.svg..."
+        & $VenvPython (Join-Path $RepoRoot 'scripts\gen_icon.py')
+        if ($LASTEXITCODE -ne 0) { throw "failed to generate app.ico (exit $LASTEXITCODE)" }
+    }
+
     & $VenvPython -m PyInstaller `
         --noconfirm `
         --clean `
@@ -145,6 +200,8 @@ try {
         --windowed `
         --name $Name `
         --paths $SrcPath `
+        --icon $IconFile `
+        --add-data "$SourceResources;resources" `
         --hidden-import serial.asyncio `
         --hidden-import _build_info `
         --version-file $VersionResource `
@@ -179,6 +236,7 @@ try {
     $Exe = Join-Path $AppDir "$Name.exe"
     if (-not (Test-Path $Exe)) { throw "expected artifact is missing: $Exe" }
     Assert-BundledRegistry $BundledRegistry
+    Assert-BundledResources $SourceResources $BundledResources
 
     $SizeMb = [math]::Round((Get-ChildItem -Recurse $AppDir | Measure-Object -Property Length -Sum).Sum / 1MB, 1)
     Write-Host ''
