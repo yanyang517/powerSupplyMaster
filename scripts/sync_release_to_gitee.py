@@ -85,14 +85,31 @@ def asset_url(asset: dict) -> str:
     return asset.get("browser_download_url") or asset.get("download_url") or "(无下载链接)"
 
 
+def tag_is_on_gitee(owner: str, repo: str, tag: str) -> bool | None:
+    """True/False 为确定结论，None 表示 tag 太多没翻到，不下判断。"""
+    _, tags = api_get(f"/repos/{owner}/{repo}/tags", params={"per_page": 100})
+    if not isinstance(tags, list):
+        return None
+    if any(item.get("name") == tag for item in tags if isinstance(item, dict)):
+        return True
+    return None if len(tags) >= 100 else False
+
+
 def ensure_release(owner: str, repo: str, tag: str, token: str, body_text: str) -> dict:
     existing = find_release(owner, repo, tag, token)
     if existing:
         print(f"Gitee 发行版已存在: id={existing.get('id')} {existing.get('html_url', '')}")
         return existing
+    if tag_is_on_gitee(owner, repo, tag) is False:
+        raise SyncError(
+            f"Gitee 上还没有 tag {tag}，平台侧的 GitHub→Gitee 同步没到位；"
+            f"等它跟上再重跑这一步，别在这里凭空的 commitish 建发行版")
     print(f"Gitee 上没有 {tag} 的发行版，按 tag 新建")
+    # target_commitish 是 Gitee 必填而 GitHub 可省的字段，缺它直接 400。
+    # 填 tag 本身：tag 已存在时它只是定位用，不会把发行版挪到分支尖端去。
     _, created = api_post_form(f"/repos/{owner}/{repo}/releases",
-                               {"tag_name": tag, "name": tag, "body": body_text}, token)
+                               {"tag_name": tag, "name": tag, "body": body_text,
+                                "target_commitish": tag}, token)
     if not isinstance(created, dict) or not created.get("id"):
         detail = json.dumps(created, ensure_ascii=False)
         raise SyncError(f"创建发行版后没拿到 id: {detail}")
