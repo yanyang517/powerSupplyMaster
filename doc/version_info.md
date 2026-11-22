@@ -44,23 +44,24 @@ build_time = "2026-11-21T09:30:00Z"
 
 ## 发版动作清单
 
-一次发布按顺序走完五步，前四步都在本地，第五步交给 release 工作流：
+一次发布按顺序走完五步，前三步在本地，第四步推主仓库，第五步交给 release 工作流：
 
 1. 一个 bump commit 同时改两处：`src/version.py` 的 `__version__` 与 `update/latest.json` 的
    `version`（`date` 一并更新为发版日）。两处一起提交，是为了让"改了版本但忘了公告"在
    同一个 diff 里就看得见。
 2. 本地闸门：`.venv\Scripts\python.exe scripts\gen_manifest.py --check`。
 3. 按项目约定用 `git merge --no-ff` 把特性分支合入 master。
-4. 在合入后的 master 上打 tag `v<新版本>`（必须等于 `tag_name()`），再分别 `git push github`
-   与 `git push origin`（Gitee）。两个源都要推：清单是从 raw URL 读的，只推一边就等于只
-   给一半用户发公告。
-5. release 工作流跑三道动作：构建前 `--check`；发布 GitHub Release 后把同一个 zip 镜像成
-   Gitee 同名发行版的附件（`scripts/sync_release_to_gitee.py`）；最后 `--remote` 用应用实际
-   会访问的两个 raw URL 回读，断言远端版本等于 tag。
+4. 在合入后的 master 上打 tag `v<新版本>`（必须等于 `tag_name()`），只推主仓库：
+   `git push github master` 与 `git push github v<新版本>`。Gitee 是只读镜像，不再由人工推
+   代码——镜像内容由 release 工作流同步过去。
+5. release 工作流跑四道动作：构建前 `--check`；发布 GitHub Release；把 master 与该 tag 快进
+   到 Gitee 镜像；再把同一个 zip 镜像成 Gitee 同名发行版的附件（`scripts/sync_release_to_gitee.py`）；
+   最后 `--remote` 用应用实际会访问的两个 raw URL 回读，断言远端版本等于 tag。
 
-镜像这一道有两个前置：仓库 secret `GITEE_TOKEN`（Gitee 私人令牌，只需 `projects` 权限），
-以及第 4 步已经把 tag 推到 Gitee——缺令牌时只记警告不失败，缺 tag 则由 Gitee 直接回错误。
-之所以值得多这一道，是国内取 GitHub Release 资产太慢，而 `update/latest.json` 里
+镜像这两道只有一个前置：仓库 secret `GITEE_TOKEN`（Gitee 私人令牌，只需 `projects` 权限）。
+没配就两道都跳过并记警告，随后 `--remote` 一定红——那是真实结论：镜像还停在上一版，
+一半用户收不到公告。要让它绿，要么配令牌，要么恢复人工推 Gitee。
+之所以值得多这两道，是国内取 GitHub Release 资产太慢，而 `update/latest.json` 里
 `release_urls` 早就同时公告了两边的发行页，只是 Gitee 那边一直是个空页。
 
 Gitee 侧的两条硬限制写在脚本里而不是等它失败：单附件 100 MB（GVP 200 MB）、每仓库附件总量
