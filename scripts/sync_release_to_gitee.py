@@ -113,7 +113,7 @@ def upload_asset(owner: str, repo: str, release_id: int, path: str, name: str, t
         "--form", f"access_token={token}",
         "--form", f"file=@{path};filename={name}",
     ]
-    print(f"上传 {name} ({os.path.getsize(path) / 1048576:.1f} MB) —— 命令行里不带令牌，避免进 CI 日志")
+    print(f"上传 {name} ({os.path.getsize(path) / 1048576:.1f} MB) —— 令牌只进 curl 参数，不写进日志")
     done = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if done.returncode != 0:
         detail = (done.stdout or done.stderr or "").strip()[:500]
