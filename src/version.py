@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 #: 发布通道。当前只有 stable 一条，预发布通道落地时再扩展比较规则。
 channel = "stable"
