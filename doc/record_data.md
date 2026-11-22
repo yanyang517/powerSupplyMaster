@@ -10,7 +10,7 @@
 |---|---|
 | 配置文件 | `config/record_settings.json`（打包运行时在 exe 同级），带 `version` 字段，tmp + `os.replace` 原子写 |
 | 默认 | `enabled=false`、`dir="records"`；配置缺失或内容不可用一律回落这套默认值，不抛异常 |
-| 采样周期 | 不是配置项：面板轮询节奏来自代码常量 `recording/settings.py` 的 `NOMINAL_INTERVAL_MS`（当前 500 ms），改配置文件不会改变采样 |
+| 采样周期 | 不是配置项：面板轮询节奏来自代码常量 `recording/settings.py` 的 `NOMINAL_INTERVAL_MS`（当前 500 ms），改配置文件不会改变采样 ，实测每行约 519 ms |
 | 记录目录 | 相对路径按仓库根（或 exe 同级）解析；会话 CSV 与 `index.json` 都在这里 |
 | 文件名 | `<YYYYMMDDTHHMMSS>_<端口>.csv`，同一秒内重连则追加 `_2`、`_3`…，绝不覆盖已有文件 |
 
@@ -36,7 +36,7 @@ ts_ms,iso_local,voltage_v,current_a
 
 行分隔用 `\r\n`（`csv` 模块默认），列头在首行。写入带缓冲，每 2 秒 flush 一次，退出（关窗/断开/关闭使能）时 flush + close。
 
-体积估算：24 小时约 17.3 万行、9 MB。
+体积：实测 56.3 字节/行、24 小时约 16.7 万行 / 9.4 MB。标称 500 ms 是采样循环的 sleep 目标，一轮实际要跑两次串口往返，所以 2026-11-22 的 3.5 小时台架长跑落在每行约 519 ms（中位 522 ms、p99 528 ms、最大 652 ms）。
 
 ## 会话切分与清单
 
