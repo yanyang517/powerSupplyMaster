@@ -113,7 +113,7 @@ Request fields: `type` (discriminator), `request_id`, `timestamp`, plus command-
 powershell -File scripts/build_exe.ps1
 ```
 
-A GitHub Actions workflow ([.github/workflows/release.yml](.github/workflows/release.yml)) builds and publishes the exe on `v*` tags.
+A GitHub Actions workflow ([.github/workflows/release.yml](.github/workflows/release.yml)) builds and publishes the exe on `v*` tags, then mirrors the same archive as an attachment on the matching Gitee release for faster downloads in mainland China (requires the repository secret `GITEE_TOKEN`; the step is skipped with a warning when it is absent).
 
 ## Project layout
 

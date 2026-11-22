@@ -113,7 +113,7 @@ python src/app.py
 powershell -File scripts/build_exe.ps1
 ```
 
-GitHub Actions 工作流（[.github/workflows/release.yml](.github/workflows/release.yml)）会在打 `v*` 标签时自动构建并发布 exe。
+GitHub Actions 工作流（[.github/workflows/release.yml](.github/workflows/release.yml)）会在打 `v*` 标签时自动构建并发布 exe，随后把同一个安装包镜像成 Gitee 同名发行版的附件，供国内下载（需配置仓库 secret `GITEE_TOKEN`，未配置时跳过并在构建页记警告）。
 
 ## 项目结构
 

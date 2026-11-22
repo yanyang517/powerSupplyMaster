@@ -17,6 +17,9 @@ jobs:
   build:
     runs-on: windows-latest
     timeout-minutes: 30
+    env:
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+      PYTHONIOENCODING: utf-8
 
     steps:
       - uses: actions/checkout@v4
@@ -74,6 +77,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$env:GITHUB_REF_NAME" $env:ARCHIVE --generate-notes --title "$env:GITHUB_REF_NAME"
+
+      - name: Mirror artifact to Gitee
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.GITEE_TOKEN != '' }}
+        shell: pwsh
+        run: |
+          # 国内下载入口：GitHub Release 之外，Gitee 同名发行版挂同一个包。
+          # attach_files 属于"能用但没写进官方文档"的接口，所以脚本上传完一定回读发行版确认。
+          .venv/Scripts/python.exe scripts/sync_release_to_gitee.py --tag "$env:GITHUB_REF_NAME" --file "$env:ARCHIVE"
+
+      - name: Note skipped Gitee mirror
+        if: ${{ startsWith(github.ref, 'refs/tags/v') && env.GITEE_TOKEN == '' }}
+        shell: pwsh
+        run: echo "::warning::未配置 GITEE_TOKEN，本次未镜像到 Gitee，国内仍只能从 GitHub 下载"
 
       - name: Read back published manifests
         if: ${{ startsWith(github.ref, 'refs/tags/v') }}
