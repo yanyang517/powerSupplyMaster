@@ -80,6 +80,7 @@ jobs:
 
       - name: Sync mirror code and tag to Gitee
         if: ${{ startsWith(github.ref, 'refs/tags/v') && env.GITEE_TOKEN != '' }}
+        continue-on-error: true
         shell: pwsh
         env:
           MIRROR_URL: https://yanyang517:${{ secrets.GITEE_TOKEN }}@gitee.com/yanyang517/power-supply-master.git
@@ -87,6 +88,8 @@ jobs:
           # "只读镜像"的意思是人不用往它推代码，不是流水线也不推：清单从两个 raw URL 读，
           # 镜像落后于 tag 就等于一半用户收不到公告，最后那道 --remote 回读正是为此而红。
           # 只允许快进——被 Gitee Go 那类自动提交挡住时报错交人工处置，流水线里不强推。
+          # continue-on-error：Gitee 侧本来就在自动同步 GitHub 代码，这一跳只是兜底；
+          # 不能让它失败顺带吃掉后面真正目标所在的制品镜像步骤。
           git push $env:MIRROR_URL "HEAD:refs/heads/master" "${env:GITHUB_REF_NAME}:refs/tags/${env:GITHUB_REF_NAME}"
 
       - name: Mirror artifact to Gitee
