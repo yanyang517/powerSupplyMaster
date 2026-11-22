@@ -147,7 +147,17 @@ python -m pytest server/test_client.py -v
 - 写类命令（`VOLT`、`OUTP`）不回读设备错误队列，设备侧错误对操作者不可见。
 - 部分协议 type 已声明但无处理器；测试套件依赖真实/虚拟串口。
 
-欢迎提交 PR 改进 —— 参见 issue 区。
+欢迎提交 PR 改进 —— 参见 GitHub 的 issue 区（Gitee 镜像不接收 PR）。
+
+## 仓库
+
+| 角色 | 地址 | 约定 |
+|---|---|---|
+| 主仓库 | `https://github.com/yanyang517/powerSupplyMaster.git` | 唯一的开发入口：提交、PR、issue 都在这一侧 |
+| 只读镜像 | `https://gitee.com/yanyang517/power-supply-master.git` | 不接受提交与 PR；国内下载走它的发行版附件，由 release 工作流从主仓库同步过去 |
+
+本地 remote 与之对应：`github` 指向主仓库，`origin` 指向镜像。注意 `origin` 在这里不是主仓库，
+这是仓库早期只托管在 Gitee 留下的名字。
 
 ## 许可
 

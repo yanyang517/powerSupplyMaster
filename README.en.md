@@ -147,7 +147,17 @@ python -m pytest server/test_client.py -v
 - Write commands (`VOLT`, `OUTP`) do not read device error queues back, so device-side errors are silent to the operator.
 - Some protocol types are declared without handlers, and the test suite requires real hardware/virtual ports.
 
-Contributions to fix these are welcome — see the issue tracker.
+Contributions to fix these are welcome — see the GitHub issue tracker (the Gitee mirror does not take pull requests).
+
+## Repositories
+
+| Role | URL | Convention |
+|---|---|---|
+| Primary | `https://github.com/yanyang517/powerSupplyMaster.git` | The only development entry point: commits, pull requests and issues live here |
+| Read-only mirror | `https://gitee.com/yanyang517/power-supply-master.git` | Takes no commits or pull requests; it exists for faster downloads in mainland China, and its release attachments are mirrored from the primary by the release workflow |
+
+Local remotes map accordingly: `github` is the primary, `origin` is the mirror. `origin` is not the
+primary here — the name is left over from when the repository only lived on Gitee.
 
 ## License
 
