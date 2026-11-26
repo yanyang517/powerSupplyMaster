@@ -105,7 +105,7 @@ def test_connect_calibrates_immediately_and_every_second(monkeypatch):
             await Presenter.open_device.__wrapped__(presenter)
             await wait_until(lambda: len(model.calls) == 3)
             assert presenter._output_state is False
-            assert presenter.view.output_states == [False, False, False]
+            assert presenter.view.output_states == [None, False, False, False]
             assert presenter._output_calibration_task is not None
         finally:
             await Presenter.close_device.__wrapped__(presenter)
@@ -156,7 +156,8 @@ def test_disconnect_cancels_inflight_query_without_late_update():
             await asyncio.sleep(0)
             assert presenter._output_calibration_task is None
             assert presenter._output_state is None
-            assert presenter.view.output_states == [None]
+            assert presenter.view.output_states == [None, None]
+            assert True not in presenter.view.output_states
         finally:
             release.set()
             await Presenter.close_device.__wrapped__(presenter)

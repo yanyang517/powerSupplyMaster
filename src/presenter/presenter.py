@@ -2,6 +2,7 @@
 import logging
 import asyncio
 import time
+from contextlib import suppress
 
 from PySide6.QtCore import Qt, QObject
 from qasync import QEventLoop, asyncSlot, asyncClose
@@ -14,7 +15,12 @@ from server.session import lease
 from recording.recorder import Recorder, reconcile_interrupted
 from recording.settings import (NOMINAL_INTERVAL_MS, RecordSettings, load_settings,
                                 records_dir_for, save_settings, settings_file_path)
-from serial_port_settings import choose_port_index, load_last_port, save_last_port
+from serial_port_settings import (
+    ConnectionSettings,
+    choose_port_index,
+    load_settings as load_connection_settings,
+    save_settings as save_connection_settings,
+)
 from views.admission_dialog import AdmissionDialog
 from views.confirmation import ask_yes_no
 
@@ -28,12 +34,28 @@ SAMPLING_FAILURE_THRESHOLD = 3
 # 面板轮询周期：与记录侧标称周期同一个出处，改这里就等于改缺口的判定基准。
 SAMPLE_INTERVAL_SECONDS = NOMINAL_INTERVAL_MS / 1000
 
+# 自动重连先按 5 秒快尝试；连续失败 10 次后改为两分钟，成功后重新计数。
+AUTO_RECONNECT_FAST_INTERVAL_SECONDS = 5.0
+AUTO_RECONNECT_SLOW_INTERVAL_SECONDS = 120.0
+AUTO_RECONNECT_FAST_ATTEMPTS = 10
+
 # 输出校准是短只读查询：不能长时间占住与 V/I 采样共用的串口。
 OUTPUT_CALIBRATION_TIMEOUT_SECONDS = 0.25
 OUTPUT_CALIBRATION_INTERVAL_SECONDS = 1.0
 
 class Presenter(QObject):
     def __init__(self, view_cls, model_cls=None):
+        self._connection_settings = load_connection_settings()
+        self._connected_port: str | None = None
+        self._auto_reconnect_task: asyncio.Task | None = None
+        self._auto_reconnect_failures = 0
+        # 手动断开只压制本次进程的自动重连；下次启动仍按用户勾选状态执行。
+        self._auto_reconnect_suppressed = False
+        # SCPI 是无请求标识的逐行响应协议：超时命令的迟到响应必须由下一次读取
+        # 完整消费，不能让校准查询插进一次 V/I 成对采集的两条命令之间。
+        self._device_operation_lock = asyncio.Lock()
+        self._connection_attempt_lock = asyncio.Lock()
+
         self.view = view_cls(presenter = self)
         self.model = PowerSupplyModel() if model_cls is None else model_cls()
         # self.view.connect_signal_slots(self)
@@ -42,13 +64,11 @@ class Presenter(QObject):
         self.view.show()
 
         self._refresh_voltage_current_task = None
+        self._device_id_task = None
         self._output_calibration_task = None
         self._output_toggle_tasks: set[asyncio.Task] = set()
         # ON / OFF / UNKNOWN：只有设备回读能给出前两者，连接和失败都回到 None。
         self._output_state: bool | None = None
-        # SCPI 是无请求标识的逐行响应协议：超时命令的迟到响应必须由下一次读取
-        # 完整消费，不能让校准查询插进一次 V/I 成对采集的两条命令之间。
-        self._device_operation_lock = asyncio.Lock()
         self._sample_failures = 0
         self._sampling_error_shown = False
         self._admission_dialogs = []
@@ -58,10 +78,10 @@ class Presenter(QObject):
         self._record_settings = load_settings()
         self._recorder: Recorder | None = None
         self._recording_error: str | None = None
-        self._connected_port: str | None = None
         # 上次进程被强杀时留下的 recording 条目在这里收尾，复看列表才不会挂着"正在录"。
         reconcile_interrupted(records_dir_for(self._record_settings))
         self.view.update_recording_state()
+        self._schedule_initial_auto_connect()
 
     def get_available_ports(self) -> list:
         '''
@@ -73,10 +93,197 @@ class Presenter(QObject):
 
         perfered_index = [i for i, port in enumerate(ports) if 'USB' in (port.description or '')]
         usb_index = perfered_index[0] if len(perfered_index) > 0 else None
-        return ports_list, choose_port_index(ports_list, load_last_port(), usb_index)
+        return ports_list, choose_port_index(ports_list, self._connection_settings.port, usb_index)
 
     def connect_signal_slots(self):
         pass
+
+    # --- 自动连接：启动、异常断开与快慢重连 ---------------------------------
+
+    def auto_connect_enabled(self) -> bool:
+        return self._connection_settings.auto_connect
+
+    def set_auto_connect(self, enabled: bool) -> bool:
+        """先持久化勾选状态，再改变本次运行的重连行为。"""
+        enabled = bool(enabled)
+        if enabled == self._connection_settings.auto_connect:
+            return True
+        settings = ConnectionSettings(
+            port=self._connection_settings.port,
+            auto_connect=enabled,
+        )
+        if not save_connection_settings(settings):
+            return False
+
+        self._connection_settings = settings
+        if enabled:
+            # 用户重新勾选属于新的明确意图，可以解除手动断开留下的抑制。
+            self._auto_reconnect_suppressed = False
+            self._auto_reconnect_failures = 0
+            self._start_auto_reconnect()
+        else:
+            self._cancel_auto_reconnect()
+            self._auto_reconnect_failures = 0
+        return True
+
+    def _schedule_initial_auto_connect(self) -> None:
+        """等事件循环开始运行后再连接，兼容 qasync 的启动顺序。"""
+        if not self.auto_connect_enabled():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                logger.warning("no event loop available for initial automatic connection")
+                return
+        loop.call_soon(self._start_auto_reconnect)
+
+    def _start_auto_reconnect(self) -> None:
+        if (not self.auto_connect_enabled() or self._auto_reconnect_suppressed
+                or self._connected_port is not None):
+            return
+        if self._auto_reconnect_task is not None and not self._auto_reconnect_task.done():
+            return
+        self._auto_reconnect_task = asyncio.create_task(self._auto_reconnect_loop())
+
+    def _cancel_auto_reconnect(self) -> None:
+        task = self._auto_reconnect_task
+        if task is not None and not task.done():
+            task.cancel()
+            # 取消可能发生在 open_serial_connection 中途；事件循环再运行一轮后，
+            # 由持有连接锁的清理任务关闭半开句柄，避免与手动/重新勾选竞争。
+            task.add_done_callback(self._on_auto_reconnect_cancelled)
+
+    def _on_auto_reconnect_cancelled(self, task: asyncio.Task) -> None:
+        # 循环内部吞掉 CancelledError 以正常收尾，因此不能靠 task.cancelled()
+        # 判断；只要连接尚未建立，就按“可能留下半开句柄”处理。
+        if self._connected_port is not None:
+            return
+        asyncio.create_task(self._close_abandoned_auto_connection())
+        if self.auto_connect_enabled() and not self._auto_reconnect_suppressed:
+            # 用户可能在旧任务取消完成前重新勾选；旧任务退出后补上这次新意图。
+            self._start_auto_reconnect()
+
+    async def _close_abandoned_auto_connection(self) -> None:
+        async with self._connection_attempt_lock:
+            if self._connected_port is None:
+                with suppress(Exception):
+                    await self.model.close()
+
+    async def _stop_auto_reconnect(self) -> bool:
+        """停止并等待当前自动尝试，避免手动连接与它同时操作串口。"""
+        task = self._auto_reconnect_task
+        self._auto_reconnect_task = None
+        if task is None or task.done() or task is asyncio.current_task():
+            return False
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        return True
+
+    def _auto_reconnect_interval(self) -> float:
+        if self._auto_reconnect_failures >= AUTO_RECONNECT_FAST_ATTEMPTS:
+            return AUTO_RECONNECT_SLOW_INTERVAL_SECONDS
+        return AUTO_RECONNECT_FAST_INTERVAL_SECONDS
+
+    async def _auto_reconnect_loop(self) -> None:
+        task = asyncio.current_task()
+        try:
+            while (self.auto_connect_enabled() and not self._auto_reconnect_suppressed
+                   and self._connected_port is None):
+                serial_port = self.view.ui.com_num_comboBox.currentText()
+                connected = False
+                if serial_port:
+                    async with self._connection_attempt_lock:
+                        try:
+                            connected = await self.model.open(port=serial_port) is True
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:
+                            logger.warning("自动连接 %s 失败：%r", serial_port, exc)
+                        if connected:
+                            self._auto_reconnect_failures = 0
+                            # 连接结果与成功收尾之间不插入 await：手动操作不可能在
+                            # 这个边界看到“串口已开、会话尚未建立”的半成品。
+                            self._mark_connected(serial_port)
+                            return
+
+                self._auto_reconnect_failures += 1
+                delay = self._auto_reconnect_interval()
+                logger.warning("自动连接失败，第 %d 次，%.0f 秒后重试",
+                               self._auto_reconnect_failures, delay)
+                await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            logger.info("Automatic connection loop cancelled.")
+        finally:
+            if self._auto_reconnect_task is task:
+                self._auto_reconnect_task = None
+
+    def _remember_successful_port(self, serial_port: str) -> None:
+        settings = ConnectionSettings(
+            port=serial_port,
+            auto_connect=self._connection_settings.auto_connect,
+        )
+        if save_connection_settings(settings):
+            self._connection_settings = settings
+
+    def _mark_connected(self, serial_port: str) -> None:
+        """手动与自动连接共用的同步收尾，确保会话、采样和输出校准只启动一次。"""
+        self._sample_failures = 0
+        self._clear_sampling_error()
+        self._connected_port = serial_port
+        self._publish_output_state(None)
+        self._remember_successful_port(serial_port)
+        self.view.update_connection_state(True, serial_port)
+        self._start_recording()
+        self._refresh_voltage_current_task = asyncio.create_task(self.refresh_voltage_current())
+        self._start_output_calibration()
+        self._device_id_task = asyncio.create_task(self._refresh_device_id(serial_port))
+
+    async def _refresh_device_id(self, serial_port: str) -> None:
+        """标识读取不属于连接锁；迟到的结果不得覆盖后续会话。"""
+        try:
+            identifier = await self.model.get_device_id()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("读取设备标识失败：%r", exc)
+            identifier = None
+        if self._connected_port == serial_port:
+            self.view.update_device_id(identifier)
+
+    async def _recover_from_serial_disconnect(self) -> None:
+        """结束当前会话并关闭旧串口；是否重连只取决于勾选状态和手动断开抑制。"""
+        if self._connected_port is None:
+            return
+        self._connected_port = None
+        self._publish_output_state(None)
+        current = asyncio.current_task()
+        tasks = [
+            task for task in (
+                self._output_calibration_task,
+                *(task for task in self._output_toggle_tasks if task is not current),
+                self._device_id_task,
+                self._refresh_voltage_current_task if self._refresh_voltage_current_task is not current else None,
+            ) if task is not None
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._refresh_voltage_current_task = None
+        self._device_id_task = None
+        self._output_calibration_task = None
+        self._output_toggle_tasks.clear()
+        self._sample_failures = 0
+        self._clear_sampling_error()
+        self.stop_recording()
+        with suppress(Exception):
+            await self.model.close()
+        self.view.update_connection_state(False)
+        self.view.update_device_id(None)
+        self._start_auto_reconnect()
 
     def _on_admission_request(self, approval) -> None:
         """服务端准入回调：与 Qt 共用事件循环，弹窗只呈现、不阻塞等待。"""
@@ -174,6 +381,10 @@ class Presenter(QObject):
 
     @asyncSlot()
     async def close_device(self):
+        # 手动断开是明确意图：先抑制并停止自动重连，再结束当前会话。
+        self._auto_reconnect_suppressed = True
+        self._auto_reconnect_failures = 0
+        await self._stop_auto_reconnect()
         # 先落为未连接，禁止确认弹窗返回后继续操作；正在等待接管或设备锁的
         # 切换也必须取消，不能留到重连后向新会话下发旧请求。
         self._connected_port = None
@@ -181,6 +392,7 @@ class Presenter(QObject):
         tasks = [
             task for task in (
                 self._refresh_voltage_current_task,
+                self._device_id_task,
                 self._output_calibration_task,
                 *self._output_toggle_tasks,
             ) if task is not None
@@ -190,6 +402,7 @@ class Presenter(QObject):
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._refresh_voltage_current_task = None
+        self._device_id_task = None
         self._output_calibration_task = None
         self._output_toggle_tasks.clear()
 
@@ -197,28 +410,39 @@ class Presenter(QObject):
         self._clear_sampling_error()
         # 断开即结束会话：一段文件对应一次连接，复看时能对上"哪次接的哪台"。
         self.stop_recording()
-        await self.model.close()
+        with suppress(Exception):
+            await self.model.close()
         self.view.update_connection_state(False)
+        self.view.update_device_id(None)
 
     @asyncSlot()
     async def open_device(self):
+        # 手动连接优先于任何待执行的自动尝试。
+        reconnect_stopped = await self._stop_auto_reconnect()
+        if reconnect_stopped:
+            # 取消可能发生在 open_serial_connection 中途，先清掉半开的旧句柄。
+            with suppress(Exception):
+                await self.model.close()
+        self._auto_reconnect_suppressed = False
+        self._auto_reconnect_failures = 0
         serial_port = self.view.ui.com_num_comboBox.currentText()
-        baudrate = self.view.ui.baudrate_comboBox.currentText()
 
-        ret = await self.model.open(port=serial_port)
-        # 按钮互斥与状态栏指示只认连接结果：失败分支也要落回未连接态，
-        # 否则一次连不上后「连接」按钮会一直灰着，用户没有任何重试入口。
-        self.view.update_connection_state(ret is True, serial_port if ret is True else None)
-        if ret is True:
-            self._sample_failures = 0
-            self._connected_port = serial_port
-            save_last_port(serial_port)
-            self._start_recording()
-            self._refresh_voltage_current_task = asyncio.create_task(self.refresh_voltage_current())
-            self._start_output_calibration()
-            
-        ret = await self.model.get_device_id()
-        self.view.update_device_id(ret)      
+        async with self._connection_attempt_lock:
+            try:
+                ret = await self.model.open(port=serial_port) is True
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("连接 %s 失败：%r", serial_port, exc)
+                ret = False
+            if ret:
+                self._mark_connected(serial_port)
+
+        # 按钮互斥与状态栏指示只认连接结果：失败分支也要落回未连接态。
+        if not ret:
+            self.view.update_connection_state(False)
+            self.view.update_device_id(None)
+            self._start_auto_reconnect()
     
     async def refresh_voltage_current(self):
         """周期采样：一次采集失败只作废这一轮，循环本身不得终止。
@@ -238,6 +462,10 @@ class Presenter(QObject):
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
+                    if isinstance(e, (serial.SerialException, ConnectionError)):
+                        logger.warning("串口异常断开：%r", e)
+                        await self._recover_from_serial_disconnect()
+                        return
                     self._sample_failures += 1
                     logger.warning("采样失败（连续 %d 次）：%r", self._sample_failures, e)
                     if (self._sample_failures >= SAMPLING_FAILURE_THRESHOLD

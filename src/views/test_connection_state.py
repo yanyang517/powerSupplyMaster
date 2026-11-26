@@ -17,13 +17,26 @@ from .main_window import MainWindow
 class StubPresenter:
     """只提供 MainWindow 构造与接线阶段会访问的成员。"""
 
-    def __init__(self, ports=(), preferred_index=None):
+    def __init__(self, ports=(), preferred_index=None, auto_connect=False):
         self.output_toggles = 0
         self._ports = list(ports)
         self._preferred_index = preferred_index
+        self.auto_connect = auto_connect
+        self.auto_connect_writes = []
+        self.save_auto_connect = True
 
     def get_available_ports(self):
         return self._ports, self._preferred_index
+
+    def auto_connect_enabled(self):
+        return self.auto_connect
+
+    def set_auto_connect(self, enabled):
+        self.auto_connect_writes.append(enabled)
+        if not self.save_auto_connect:
+            return False
+        self.auto_connect = enabled
+        return True
 
     def open_device(self):
         pass
@@ -57,8 +70,8 @@ def make_window(qapp, tmp_path, monkeypatch):
     )
     windows = []
 
-    def build(ports=(), preferred_index=None):
-        win = MainWindow(StubPresenter(ports, preferred_index))
+    def build(ports=(), preferred_index=None, auto_connect=False):
+        win = MainWindow(StubPresenter(ports, preferred_index, auto_connect))
         windows.append(win)
         return win
 
@@ -94,6 +107,35 @@ class TestPortSelection:
 
         assert win.ui.com_num_comboBox.count() == 0
         assert win.ui.com_num_comboBox.currentText() == ""
+
+
+class TestAutoReconnectCheckbox:
+    def test_checked_preference_is_restored_at_startup(self, make_window):
+        win = make_window(auto_connect=True)
+
+        assert win.ui.auto_reconnect_CB.isChecked()
+
+    def test_unchecked_preference_is_restored_at_startup(self, make_window):
+        win = make_window(auto_connect=False)
+
+        assert not win.ui.auto_reconnect_CB.isChecked()
+
+    def test_toggle_is_forwarded_to_presenter(self, make_window):
+        win = make_window()
+
+        win.ui.auto_reconnect_CB.click()
+
+        assert win.presenter.auto_connect_writes == [True]
+        assert win.ui.auto_reconnect_CB.isChecked()
+
+    def test_failed_persistence_reverts_the_checkbox(self, make_window):
+        win = make_window()
+        win.presenter.save_auto_connect = False
+
+        win.ui.auto_reconnect_CB.click()
+
+        assert win.presenter.auto_connect_writes == [True]
+        assert not win.ui.auto_reconnect_CB.isChecked()
 
 
 class TestButtonExclusivity:

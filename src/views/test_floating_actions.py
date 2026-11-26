@@ -16,6 +16,12 @@ class RecordingPresenter:
     def get_available_ports(self):
         return [], 0
 
+    def auto_connect_enabled(self):
+        return False
+
+    def set_auto_connect(self, enabled):
+        return True
+
     def open_device(self):
         pass
 

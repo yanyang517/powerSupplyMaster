@@ -10,6 +10,9 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import serial
+import pytest
+
 from recording.recorder import INDEX_FILE_NAME
 from recording.settings import RecordSettings
 
@@ -73,10 +76,13 @@ class CountingModel:
     """数得清调用次数的假设备：记录是否多问一句串口，只能这么验。"""
 
     def __init__(self, fail_voltage_on=(), fail_current_on=(), open_ok=True,
-                 output_error=None):
+                 output_error=None, voltage_error=None, open_results=()):
         self.fail_voltage_on = set(fail_voltage_on)
         self.fail_current_on = set(fail_current_on)
         self.output_error = output_error
+        self.voltage_error = voltage_error
+        self.open_results = list(open_results)
+        self.opened_ports = []
         self.output_calls = 0
         self.voltage_calls = 0
         self.current_calls = 0
@@ -87,6 +93,9 @@ class CountingModel:
 
     async def open(self, port=None, **kwargs):
         self.opened += 1
+        self.opened_ports.append(port)
+        if self.open_results:
+            return self.open_results.pop(0)
         return self.open_ok
 
     async def close(self):
@@ -104,6 +113,8 @@ class CountingModel:
 
     async def get_voltage(self):
         self.voltage_calls += 1
+        if self.voltage_error is not None:
+            raise self.voltage_error
         if self.voltage_calls in self.fail_voltage_on:
             raise asyncio.TimeoutError()
         return 12.0
@@ -115,13 +126,18 @@ class CountingModel:
         return 1.0
 
 
-def make(tmp_path, monkeypatch, model=None, enabled=False, port="COM8"):
+def make(tmp_path, monkeypatch, model=None, enabled=False, port="COM8",
+         auto_connect=False, save_connection=True):
     """造一个记录目录落在 tmp_path、且不真睡觉的 presenter。"""
     settings = RecordSettings(enabled=enabled, dir=str(tmp_path / "records"))
+    connection_settings = presenter_mod.ConnectionSettings(
+        port=port, auto_connect=auto_connect)
     monkeypatch.setattr(presenter_mod, "load_settings", lambda *a, **k: settings)
     monkeypatch.setattr(presenter_mod, "save_settings", lambda _s: True)
-    monkeypatch.setattr(presenter_mod, "load_last_port", lambda *a, **k: None)
-    monkeypatch.setattr(presenter_mod, "save_last_port", lambda _p: True)
+    monkeypatch.setattr(presenter_mod, "load_connection_settings",
+                        lambda *a, **k: connection_settings)
+    monkeypatch.setattr(presenter_mod, "save_connection_settings",
+                        lambda _s: save_connection)
     monkeypatch.setattr(presenter_mod, "SAMPLE_INTERVAL_SECONDS", 0)
     return Presenter(lambda presenter=None: RecordingView(presenter, port),
                      lambda: model or CountingModel())
@@ -409,14 +425,14 @@ class TestPortSelection:
     def test_available_last_successful_port_is_preferred(self, tmp_path, monkeypatch):
         monkeypatch.setattr(presenter_mod.list_ports, "comports", self.ports)
         presenter = make(tmp_path, monkeypatch)
-        monkeypatch.setattr(presenter_mod, "load_last_port", lambda *a, **k: "COM9")
+        presenter._connection_settings = presenter_mod.ConnectionSettings(port="COM9")
 
         assert presenter.get_available_ports() == (["COM3", "COM8", "COM9"], 2)
 
     def test_unavailable_last_port_falls_back_to_usb(self, tmp_path, monkeypatch):
         monkeypatch.setattr(presenter_mod.list_ports, "comports", self.ports)
         presenter = make(tmp_path, monkeypatch)
-        monkeypatch.setattr(presenter_mod, "load_last_port", lambda *a, **k: "COM7")
+        presenter._connection_settings = presenter_mod.ConnectionSettings(port="COM7")
 
         assert presenter.get_available_ports() == (["COM3", "COM8", "COM9"], 0)
 
@@ -424,6 +440,7 @@ class TestPortSelection:
         monkeypatch.setattr(presenter_mod.list_ports, "comports", lambda: [
             SimpleNamespace(device="COM8", description="Communications Port")])
         presenter = make(tmp_path, monkeypatch)
+        presenter._connection_settings = presenter_mod.ConnectionSettings()
 
         assert presenter.get_available_ports() == (["COM8"], None)
 
@@ -453,12 +470,13 @@ class TestConnectionStateIsReported:
     def test_successful_open_remembers_the_port(self, tmp_path, monkeypatch):
         presenter = make(tmp_path, monkeypatch, port="COM9")
         saved = []
-        monkeypatch.setattr(presenter_mod, "save_last_port", saved.append)
+        monkeypatch.setattr(presenter_mod, "save_connection_settings", saved.append)
 
         asyncio.run(Presenter.open_device.__wrapped__(presenter))
         disconnect(presenter)
 
-        assert saved == ["COM9"]
+        assert [settings.port for settings in saved] == ["COM9"]
+        assert saved[0].auto_connect is False
 
     def test_failed_open_does_not_replace_the_remembered_port(self, tmp_path, monkeypatch):
         presenter = make(tmp_path, monkeypatch, model=CountingModel(open_ok=False), port="COM9")
@@ -466,17 +484,272 @@ class TestConnectionStateIsReported:
         def unexpected_save(port):
             raise AssertionError(f"failed connection must not remember {port}")
 
-        monkeypatch.setattr(presenter_mod, "save_last_port", unexpected_save)
+        monkeypatch.setattr(presenter_mod, "save_connection_settings", unexpected_save)
         asyncio.run(Presenter.open_device.__wrapped__(presenter))
 
         assert presenter.view.connection_states == [(False, None)]
 
     def test_remembering_failure_does_not_break_a_successful_connection(self, tmp_path, monkeypatch):
         presenter = make(tmp_path, monkeypatch)
-        monkeypatch.setattr(presenter_mod, "save_last_port", lambda _port: False)
+        monkeypatch.setattr(presenter_mod, "save_connection_settings", lambda _settings: False)
 
         asyncio.run(Presenter.open_device.__wrapped__(presenter))
         disconnect(presenter)
 
         assert presenter.view.connection_states[0] == (True, "COM8")
         assert presenter._connected_port is None
+
+
+async def wait_until(predicate):
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 2.0
+    while not predicate():
+        if loop.time() >= deadline:
+            raise AssertionError("condition did not become true")
+        await asyncio.sleep(0)
+
+
+class TestAutoReconnect:
+    def test_checked_setting_connects_on_startup(self, tmp_path, monkeypatch):
+        model = CountingModel()
+
+        async def scenario():
+            presenter = make(tmp_path, monkeypatch, model=model, port="COM9", auto_connect=True)
+            await wait_until(lambda: presenter._connected_port == "COM9")
+
+            assert model.opened_ports == ["COM9"]
+            assert presenter.view.connection_states[-1] == (True, "COM9")
+            await Presenter.close_device.__wrapped__(presenter)
+
+        asyncio.run(scenario())
+
+    def test_unchecked_setting_does_not_connect_on_startup(self, tmp_path, monkeypatch):
+        model = CountingModel()
+
+        async def scenario():
+            presenter = make(tmp_path, monkeypatch, model=model, auto_connect=False)
+            await asyncio.sleep(0)
+
+            assert model.opened == 0
+            assert presenter._auto_reconnect_task is None
+
+        asyncio.run(scenario())
+
+    @pytest.mark.parametrize(("failures", "expected"), [
+        (0, 5.0),
+        (9, 5.0),
+        (10, 120.0),
+        (11, 120.0),
+    ])
+    def test_retry_interval_switches_after_ten_failures(self, tmp_path, monkeypatch,
+                                                       failures, expected):
+        presenter = make(tmp_path, monkeypatch)
+        presenter._auto_reconnect_failures = failures
+
+        assert presenter._auto_reconnect_interval() == expected
+
+    @pytest.mark.parametrize(("failures", "expected"), [(0, 5.0), (9, 120.0)])
+    def test_loop_waits_the_selected_interval(self, tmp_path, monkeypatch, failures, expected):
+        presenter = make(tmp_path, monkeypatch, model=CountingModel(open_ok=False))
+        presenter._connection_settings = presenter_mod.ConnectionSettings(auto_connect=True)
+        presenter._auto_reconnect_failures = failures
+        delays = []
+
+        async def stop_after_delay(delay):
+            delays.append(delay)
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(presenter_mod.asyncio, "sleep", stop_after_delay)
+        asyncio.run(presenter._auto_reconnect_loop())
+
+        assert delays == [expected]
+        assert presenter._auto_reconnect_failures == failures + 1
+
+    def test_success_resets_the_failure_counter(self, tmp_path, monkeypatch):
+        presenter = make(tmp_path, monkeypatch)
+        presenter._connection_settings = presenter_mod.ConnectionSettings(auto_connect=True)
+        presenter._auto_reconnect_failures = 7
+
+        asyncio.run(presenter._auto_reconnect_loop())
+        disconnect(presenter)
+
+        assert presenter._auto_reconnect_failures == 0
+
+    def test_manual_disconnect_suppresses_reconnect(self, tmp_path, monkeypatch):
+        model = CountingModel()
+
+        async def scenario():
+            presenter = make(tmp_path, monkeypatch, model=model)
+            await Presenter.open_device.__wrapped__(presenter)
+            presenter.set_auto_connect(True)
+            await Presenter.close_device.__wrapped__(presenter)
+            await asyncio.sleep(0)
+
+            assert presenter._auto_reconnect_suppressed is True
+            assert presenter._auto_reconnect_task is None
+            assert model.opened == 1
+
+        asyncio.run(scenario())
+
+    @pytest.mark.parametrize("error", [
+        serial.SerialException("port unplugged"),
+        ConnectionError("serial connection closed"),
+    ])
+    def test_serial_disconnect_reconnects_when_checked(self, tmp_path, monkeypatch, error):
+        model = CountingModel(voltage_error=error)
+
+        async def scenario():
+            presenter = make(tmp_path, monkeypatch, model=model)
+            await Presenter.open_device.__wrapped__(presenter)
+            presenter.set_auto_connect(True)
+            await wait_until(lambda: model.opened >= 2 and presenter._connected_port == "COM8")
+            model.voltage_error = None
+
+            assert (False, None) in presenter.view.connection_states
+            assert presenter.view.connection_states[-1] == (True, "COM8")
+            await Presenter.close_device.__wrapped__(presenter)
+
+        asyncio.run(scenario())
+
+    def test_serial_disconnect_stays_offline_when_unchecked(self, tmp_path, monkeypatch):
+        model = CountingModel(voltage_error=serial.SerialException("port unplugged"))
+
+        async def scenario():
+            presenter = make(tmp_path, monkeypatch, model=model)
+            await Presenter.open_device.__wrapped__(presenter)
+            await wait_until(
+                lambda: presenter.view.connection_states[-1] == (False, None)
+            )
+            await asyncio.sleep(0)
+
+            assert model.opened == 1
+            assert presenter._auto_reconnect_task is None
+            assert presenter.view.connection_states[-1] == (False, None)
+            await Presenter.close_device.__wrapped__(presenter)
+
+        asyncio.run(scenario())
+
+    def test_unchecking_cancels_a_pending_retry(self, tmp_path, monkeypatch):
+        model = CountingModel(open_ok=False)
+
+        async def scenario():
+            presenter = make(tmp_path, monkeypatch, model=model, auto_connect=True)
+            await wait_until(lambda: presenter._auto_reconnect_failures == 1)
+
+            assert presenter.set_auto_connect(False) is True
+            await asyncio.sleep(0)
+
+            assert presenter._auto_reconnect_task is None
+            assert presenter._auto_reconnect_failures == 0
+            assert model.opened == 1
+
+        asyncio.run(scenario())
+
+    def test_manual_disconnect_cancels_a_pending_retry(self, tmp_path, monkeypatch):
+        model = CountingModel(open_ok=False)
+
+        async def scenario():
+            presenter = make(tmp_path, monkeypatch, model=model, auto_connect=True)
+            await wait_until(lambda: presenter._auto_reconnect_failures == 1)
+
+            await Presenter.close_device.__wrapped__(presenter)
+            await asyncio.sleep(0)
+
+            assert presenter._auto_reconnect_suppressed is True
+            assert presenter._auto_reconnect_task is None
+            assert model.opened == 1
+
+        asyncio.run(scenario())
+
+    def test_manual_connect_takes_over_from_a_pending_retry(self, tmp_path, monkeypatch):
+        model = CountingModel(open_results=[False, True])
+
+        async def scenario():
+            presenter = make(tmp_path, monkeypatch, model=model, auto_connect=True)
+            await wait_until(lambda: presenter._auto_reconnect_failures == 1)
+
+            await Presenter.open_device.__wrapped__(presenter)
+
+            assert model.opened == 2
+            assert presenter._connected_port == "COM8"
+            assert presenter._auto_reconnect_task is None
+            await Presenter.close_device.__wrapped__(presenter)
+
+        asyncio.run(scenario())
+
+    def test_unchecking_during_open_closes_the_abandoned_handle(self, tmp_path, monkeypatch):
+        class BlockingOpenModel(CountingModel):
+            def __init__(self):
+                super().__init__()
+                self.started = asyncio.Event()
+
+            async def open(self, port=None, **kwargs):
+                self.opened += 1
+                self.opened_ports.append(port)
+                self.started.set()
+                await asyncio.Event().wait()
+                return True
+
+        model = BlockingOpenModel()
+
+        async def scenario():
+            presenter = make(tmp_path, monkeypatch, model=model, auto_connect=True)
+            await model.started.wait()
+            assert presenter.set_auto_connect(False) is True
+            await wait_until(lambda: presenter._auto_reconnect_task is None and model.closed == 1)
+
+            assert model.opened == 1
+            assert presenter._connected_port is None
+
+        asyncio.run(scenario())
+
+    def test_rechecking_during_cancellation_still_connects(self, tmp_path, monkeypatch):
+        class BlockingFirstOpenModel(CountingModel):
+            def __init__(self):
+                super().__init__()
+                self.started = asyncio.Event()
+
+            async def open(self, port=None, **kwargs):
+                self.opened += 1
+                self.opened_ports.append(port)
+                if self.opened == 1:
+                    self.started.set()
+                    await asyncio.Event().wait()
+                return True
+
+        model = BlockingFirstOpenModel()
+
+        async def scenario():
+            presenter = make(tmp_path, monkeypatch, model=model, auto_connect=True)
+            await model.started.wait()
+            assert presenter.set_auto_connect(False) is True
+            assert presenter.set_auto_connect(True) is True
+            await wait_until(lambda: presenter._connected_port == "COM8")
+
+            assert model.opened == 2
+            await Presenter.close_device.__wrapped__(presenter)
+
+        asyncio.run(scenario())
+
+    def test_failed_preference_write_does_not_enable_reconnect(self, tmp_path, monkeypatch):
+        presenter = make(tmp_path, monkeypatch)
+        monkeypatch.setattr(presenter_mod, "save_connection_settings", lambda _settings: False)
+
+        assert presenter.set_auto_connect(True) is False
+        assert presenter.auto_connect_enabled() is False
+
+    def test_sampling_timeout_does_not_trigger_reconnect(self, tmp_path, monkeypatch):
+        model = CountingModel(fail_voltage_on={1, 2, 3, 4})
+
+        async def scenario():
+            presenter = make(tmp_path, monkeypatch, model=model)
+            await Presenter.open_device.__wrapped__(presenter)
+            presenter.set_auto_connect(True)
+            await wait_until(lambda: bool(presenter.view.error_messages))
+
+            assert model.opened == 1
+            assert presenter._connected_port == "COM8"
+            assert presenter._auto_reconnect_task is None
+            await Presenter.close_device.__wrapped__(presenter)
+
+        asyncio.run(scenario())
