@@ -29,7 +29,7 @@ class StubPresenter:
     def set_voltage(self, value):
         pass
 
-    def set_on_off(self, value):
+    def toggle_output(self):
         pass
 
     # 记录页在 _mount_record_tab 阶段就引用它们，桩件缺一个就构造不出窗口。
@@ -93,8 +93,10 @@ def test_button_keeps_text_beside_its_icon(window, name):
 def test_output_button_icon_is_the_same_glyph_in_both_states(window):
     """两态同字形、只换色：availableSizes 相同而像素不同，正是 D8 那条"只换色"的形态。"""
     button = window.ui.ouput_ctrl_Btn
+    window.update_connection_state(True, "COM8")
+    window.update_output_state(False)
     off = button.icon()
-    button.setChecked(True)
+    window.update_output_state(True)
     on = button.icon()
     assert off.availableSizes() == on.availableSizes()
     assert off.pixmap(QSize(16, 16)).toImage() != on.pixmap(QSize(16, 16)).toImage()

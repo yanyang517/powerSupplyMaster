@@ -41,6 +41,7 @@ class RecordingView:
         self.recording_states = []
         self.error_messages = []
         self.connection_states = []
+        self.output_states = []
 
     def show(self):
         pass
@@ -60,6 +61,9 @@ class RecordingView:
     def update_sampling_error(self, message):
         self.error_messages.append(message)
 
+    def update_output_state(self, value):
+        self.output_states.append(value)
+
     def update_recording_state(self):
         self.recording_states.append(self.presenter.recording_status())
 
@@ -67,9 +71,12 @@ class RecordingView:
 class CountingModel:
     """数得清调用次数的假设备：记录是否多问一句串口，只能这么验。"""
 
-    def __init__(self, fail_voltage_on=(), fail_current_on=(), open_ok=True):
+    def __init__(self, fail_voltage_on=(), fail_current_on=(), open_ok=True,
+                 output_error=None):
         self.fail_voltage_on = set(fail_voltage_on)
         self.fail_current_on = set(fail_current_on)
+        self.output_error = output_error
+        self.output_calls = 0
         self.voltage_calls = 0
         self.current_calls = 0
         self.opened = 0
@@ -87,6 +94,12 @@ class CountingModel:
 
     async def get_device_id(self):
         return "FAKE-PSU"
+
+    async def get_on_off(self, *, timeout=1.0):
+        self.output_calls += 1
+        if self.output_error is not None:
+            raise self.output_error
+        return True
 
     async def get_voltage(self):
         self.voltage_calls += 1
@@ -293,6 +306,25 @@ class TestSamplingIsUntouched:
         rows = read_rows(tmp_path, only_csv(tmp_path))
         assert len(rows) - 1 == len(presenter.view.voltages)
         assert model.voltage_calls == len(presenter.view.voltages) + 1
+
+
+class TestOutputFailureDoesNotSpillOver:
+    def test_output_timeout_keeps_sampling_and_paired_records(self, tmp_path, monkeypatch):
+        model = CountingModel(output_error=asyncio.TimeoutError())
+        presenter = make(tmp_path, monkeypatch, model=model, enabled=True)
+
+        connect(presenter, cycles=3)
+
+        assert model.output_calls >= 1
+        assert presenter._output_state is None
+        assert presenter.view.error_messages == []
+        assert model.voltage_calls == model.current_calls >= 3
+        assert len(presenter.view.voltages) >= 3
+        displayed_pairs = len(presenter.view.voltages)
+        disconnect(presenter)
+        rows = read_rows(tmp_path, only_csv(tmp_path))
+        assert len(rows) - 1 == displayed_pairs
+        assert all(len(row) == 4 for row in rows[1:])
 
 
 class TestFailureDoesNotSpillOver:

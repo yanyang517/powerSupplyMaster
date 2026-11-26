@@ -17,6 +17,9 @@ from .main_window import MainWindow
 class StubPresenter:
     """只提供 MainWindow 构造与接线阶段会访问的成员。"""
 
+    def __init__(self):
+        self.output_toggles = 0
+
     def get_available_ports(self):
         return [], 0
 
@@ -25,6 +28,9 @@ class StubPresenter:
 
     def close_device(self):
         pass
+
+    def toggle_output(self):
+        self.output_toggles += 1
 
     def set_recording_enabled(self, enabled):
         return True
@@ -71,6 +77,63 @@ class TestButtonExclusivity:
 
         assert window.ui.connect_Btn.isEnabled()
         assert not window.ui.disconnect_Btn.isEnabled()
+
+
+class TestOutputStateRendering:
+    def test_initial_output_is_unknown_and_disabled(self, window):
+        button = window.ui.ouput_ctrl_Btn
+        assert button.text() == "输出状态不可用"
+        assert not button.isChecked()
+        assert not button.isEnabled()
+
+    def test_connection_alone_does_not_guess_output_state(self, window):
+        window.update_connection_state(True, "COM8")
+        assert window.ui.ouput_ctrl_Btn.text() == "输出状态不可用"
+        assert not window.ui.ouput_ctrl_Btn.isEnabled()
+
+    @pytest.mark.parametrize(("state", "text", "checked"), [
+        (True, "关闭输出", True),
+        (False, "开启输出", False),
+    ])
+    def test_confirmed_state_renders_next_action(self, window, state, text, checked):
+        window.update_connection_state(True, "COM8")
+        window.update_output_state(state)
+
+        button = window.ui.ouput_ctrl_Btn
+        assert button.text() == text
+        assert button.isChecked() is checked
+        assert button.isEnabled()
+        assert window.floating_window.output_value is state
+
+    def test_failed_calibration_disables_both_output_controls(self, window):
+        window.update_connection_state(True, "COM8")
+        window.update_output_state(True)
+
+        window.update_output_state(None)
+
+        assert window.ui.ouput_ctrl_Btn.text() == "输出状态不可用"
+        assert not window.ui.ouput_ctrl_Btn.isEnabled()
+        assert not window.floating_window.buildContextMenu().actions()[1].isEnabled()
+
+    def test_click_sends_toggle_without_keeping_optimistic_check(self, window):
+        window.update_connection_state(True, "COM8")
+        window.update_output_state(True)
+
+        window.ui.ouput_ctrl_Btn.click()
+
+        assert window.presenter.output_toggles == 1
+        assert window.ui.ouput_ctrl_Btn.isChecked()
+
+    def test_disconnect_clears_confirmed_output_state(self, window):
+        window.update_connection_state(True, "COM8")
+        window.update_output_state(True)
+
+        window.update_connection_state(False)
+
+        assert window._output_state is None
+        assert window.ui.ouput_ctrl_Btn.text() == "输出状态不可用"
+        assert not window.ui.ouput_ctrl_Btn.isChecked()
+        assert not window.ui.ouput_ctrl_Btn.isEnabled()
 
 
 class TestStatusBarIndicator:

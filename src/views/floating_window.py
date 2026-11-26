@@ -10,7 +10,7 @@ class FloatingWindow(QMainWindow):
     doubleClicked = Signal()
     # 悬浮窗不持有 presenter，也不反向找主窗口：动作交给宿主接线，和 doubleClicked 同一套路。
     request_show_main = Signal()
-    request_output_off = Signal()
+    request_output_toggle = Signal()
 
     def __init__(self):
         super().__init__(flags=Qt.WindowStaysOnTopHint | Qt.FramelessWindowHint)
@@ -22,7 +22,7 @@ class FloatingWindow(QMainWindow):
         self.ui.setupUi(self._central_widget)
         self.current_value = 0.0
         self.voltage_value = 0.0
-        self.output_value = True
+        self.output_value: bool | None = None
         self._stale = False
 
         self._transparency = 0.2
@@ -102,12 +102,20 @@ class FloatingWindow(QMainWindow):
         """菜单构造与弹出分开：`QMenu.exec` 是模态原生调用，Shiboken 层面拦不住，
         测试只能拿到这个构建入口来逐项验证动作落点。"""
         menu = QMenu(self)
+        output_text = {
+            True: "关闭输出",
+            False: "开启输出",
+            None: "输出状态不可用",
+        }[self.output_value]
         for text, glyph, handler in (
             ("显示主窗口", "tabler/window", self._ask_show_main),
-            ("关闭电源输出", "tabler/power", self._ask_output_off),
+            (output_text, "tabler/power", self._ask_output_toggle),
             ("隐藏悬浮窗", "tabler/eye-off", self.close),
         ):
-            menu.addAction(icons.icon(glyph, "text", 16), text).triggered.connect(handler)
+            action = menu.addAction(icons.icon(glyph, "text", 16), text)
+            if handler == self._ask_output_toggle:
+                action.setEnabled(self.output_value is not None)
+            action.triggered.connect(handler)
         return menu
 
     def showContextMenu(self, pos):
@@ -116,8 +124,8 @@ class FloatingWindow(QMainWindow):
     def _ask_show_main(self):
         self.request_show_main.emit()
 
-    def _ask_output_off(self):
-        self.request_output_off.emit()
+    def _ask_output_toggle(self):
+        self.request_output_toggle.emit()
 
     @Slot(int)
     def update_transparency(self, value: int):
@@ -128,11 +136,21 @@ class FloatingWindow(QMainWindow):
 
     @Slot(bool)
     def update_output(self, on: bool):
+        self.update_output_state(on)
+
+    @Slot(object)
+    def update_output_state(self, on: bool | None):
+        """只保存宿主发布的状态；未知不等于关闭，也不把 V/I 标成 stale。"""
         self.output_value = on
-        if on:
-            self.ui.current_label.setText(f"{self.current_value:.2f} A")
+        self._render_output_label()
+
+    def _render_output_label(self):
+        if self._stale:
+            return
+        if self.output_value is False:
+            self.ui.current_label.setText("OFF")
         else:
-            self.ui.current_label.setText("OFF")   # reuse current_label to indicate output state
+            self.ui.current_label.setText(f"{self.current_value:.2f} A")
 
     @Slot(float)
     def update_voltage(self, voltage: float):
@@ -145,7 +163,7 @@ class FloatingWindow(QMainWindow):
         self.current_value = current
         if self._stale:
             return
-        if self.output_value:
+        if self.output_value is not False:
             self.ui.current_label.setText(f"{current:.2f} A")
 
     @Slot(bool)
@@ -157,7 +175,7 @@ class FloatingWindow(QMainWindow):
             self.ui.current_label.setText("-- A")
             return
         self.ui.voltage_label.setText(f"{self.voltage_value:.2f} V")
-        self.update_output(self.output_value)
+        self._render_output_label()
 
     @Slot(float, float)
     def update_values(self, voltage: float, current: float):

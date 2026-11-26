@@ -27,7 +27,7 @@ Tabler 的文件不带注释，因此其 MIT 全文记录在本文件末尾。
 | `users.svg` | 页签「客户端」 |
 | `picture-in-picture.svg` | 页签「悬浮窗」 |
 | `plug-off.svg` | 按钮「断开」 |
-| `power.svg` | 按钮「输出开关」、悬浮窗菜单「关闭电源输出」 |
+| `power.svg` | 按钮「输出开关」、悬浮窗动态输出菜单（开启/关闭输出） |
 | `circle-dot.svg` | 控制权·本机持有 |
 | `circle.svg` | 控制权·他人持有 |
 | `circle-dashed.svg` | 控制权·持有者断线（租约未释放） |

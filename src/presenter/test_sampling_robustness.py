@@ -17,6 +17,7 @@ class RecordingView:
         self.voltages = []
         self.currents = []
         self.error_messages = []
+        self.output_states = []
 
     def show(self):
         pass
@@ -30,6 +31,9 @@ class RecordingView:
     def update_sampling_error(self, message):
         self.error_messages.append(message)
 
+    def update_output_state(self, value):
+        self.output_states.append(value)
+
     def update_recording_state(self):
         pass
 
@@ -37,11 +41,19 @@ class RecordingView:
 class FlakyModel:
     """按调用序号抛错的假设备，用来精确制造"第几轮失败"。"""
 
-    def __init__(self, fail_voltage_on=(), fail_current_on=()):
+    def __init__(self, fail_voltage_on=(), fail_current_on=(), output_error=None):
         self.fail_voltage_on = set(fail_voltage_on)
         self.fail_current_on = set(fail_current_on)
+        self.output_error = output_error
+        self.output_calls = 0
         self.voltage_calls = 0
         self.current_calls = 0
+
+    async def get_on_off(self, *, timeout=1.0):
+        self.output_calls += 1
+        if self.output_error is not None:
+            raise self.output_error
+        return True
 
     async def get_voltage(self):
         self.voltage_calls += 1
@@ -119,6 +131,95 @@ class TestSamplingKeepsRunning:
         sample_for(presenter, view, 2)
 
         assert view.voltages == [40.0, 41.0]
+
+
+class TestOutputFailureIsIsolated:
+    def test_output_timeout_does_not_stop_or_penalize_sampling(self, monkeypatch):
+        model = FlakyModel(output_error=asyncio.TimeoutError())
+        presenter = make_presenter(model)
+        view = presenter.view
+        _no_wait(monkeypatch)
+
+        assert asyncio.run(presenter.refresh_output_state()) is None
+        sample_for(presenter, view, 3)
+
+        assert view.output_states == [None]
+        assert view.error_messages == []
+        assert view.voltages == [1.0, 2.0, 3.0]
+        assert view.currents == [0.1, 0.2, 0.3]
+        assert model.output_calls == 1
+        assert model.voltage_calls == model.current_calls == 3
+
+    def test_output_timeout_cannot_interleave_between_voltage_and_current(self, monkeypatch):
+        """超时后的迟到响应只能由下一轮完整消费，不能插入 V/I 成对采集。"""
+        model = FlakyModel()
+        presenter = make_presenter(model)
+        view = presenter.view
+        _no_wait(monkeypatch)
+        monkeypatch.setattr(presenter_mod, "OUTPUT_CALIBRATION_INTERVAL_SECONDS", 0)
+        output_started = asyncio.Event()
+        release_output = asyncio.Event()
+        voltage_started = asyncio.Event()
+        release_voltage = asyncio.Event()
+
+        async def timed_out_output(*, timeout):
+            model.output_calls += 1
+            output_started.set()
+            await release_output.wait()
+            raise asyncio.TimeoutError()
+
+        async def blocked_voltage():
+            model.voltage_calls += 1
+            voltage_started.set()
+            await release_voltage.wait()
+            return 12.0
+
+        model.get_on_off = timed_out_output
+        model.get_voltage = blocked_voltage
+
+        async def scenario():
+            calibration = asyncio.create_task(presenter._calibrate_output_state())
+            sampling = asyncio.create_task(presenter.refresh_voltage_current())
+            try:
+                await output_started.wait()
+                await asyncio.sleep(0)
+                # 采样已启动，但必须等输出查询完整结束后才能开始第一对读取。
+                assert model.voltage_calls == 0
+
+                release_output.set()
+                await voltage_started.wait()
+                for _ in range(5):
+                    await asyncio.sleep(0)
+                # 电压被阻塞期间，下一次校准和电流查询都不能插进来。
+                assert model.output_calls == 1
+                assert model.current_calls == 0
+
+                release_voltage.set()
+                deadline = asyncio.get_running_loop().time() + 1.0
+                while not view.voltages:
+                    if asyncio.get_running_loop().time() >= deadline:
+                        raise AssertionError("V/I pair did not complete")
+                    await asyncio.sleep(0)
+                assert view.voltages == [12.0]
+                assert view.currents == [0.1]
+                assert view.output_states == [None]
+                assert view.error_messages == []
+            finally:
+                calibration.cancel()
+                sampling.cancel()
+                await asyncio.gather(calibration, sampling, return_exceptions=True)
+
+        asyncio.run(scenario())
+
+    def test_output_calibration_adds_no_reads_to_each_vi_cycle(self, monkeypatch):
+        model = FlakyModel()
+        presenter = make_presenter(model)
+        _no_wait(monkeypatch)
+
+        sample_for(presenter, presenter.view, 4)
+
+        assert model.output_calls == 0
+        assert model.voltage_calls == model.current_calls == 4
 
 
 class TestSamplingFailureIsVisible:

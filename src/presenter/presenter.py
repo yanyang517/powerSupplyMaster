@@ -27,6 +27,10 @@ SAMPLING_FAILURE_THRESHOLD = 3
 # 面板轮询周期：与记录侧标称周期同一个出处，改这里就等于改缺口的判定基准。
 SAMPLE_INTERVAL_SECONDS = NOMINAL_INTERVAL_MS / 1000
 
+# 输出校准是短只读查询：不能长时间占住与 V/I 采样共用的串口。
+OUTPUT_CALIBRATION_TIMEOUT_SECONDS = 0.25
+OUTPUT_CALIBRATION_INTERVAL_SECONDS = 1.0
+
 class Presenter(QObject):
     def __init__(self, view_cls, model_cls=None):
         self.view = view_cls(presenter = self)
@@ -37,6 +41,13 @@ class Presenter(QObject):
         self.view.show()
 
         self._refresh_voltage_current_task = None
+        self._output_calibration_task = None
+        self._output_toggle_tasks: set[asyncio.Task] = set()
+        # ON / OFF / UNKNOWN：只有设备回读能给出前两者，连接和失败都回到 None。
+        self._output_state: bool | None = None
+        # SCPI 是无请求标识的逐行响应协议：超时命令的迟到响应必须由下一次读取
+        # 完整消费，不能让校准查询插进一次 V/I 成对采集的两条命令之间。
+        self._device_operation_lock = asyncio.Lock()
         self._sample_failures = 0
         self._sampling_error_shown = False
         self._admission_dialogs = []
@@ -161,15 +172,29 @@ class Presenter(QObject):
 
     @asyncSlot()
     async def close_device(self):
-        if self._refresh_voltage_current_task is not None:
-            self._refresh_voltage_current_task.cancel()
-            self._refresh_voltage_current_task = None
+        # 先落为未连接，禁止确认弹窗返回后继续操作；正在等待接管或设备锁的
+        # 切换也必须取消，不能留到重连后向新会话下发旧请求。
+        self._connected_port = None
+        self._publish_output_state(None)
+        tasks = [
+            task for task in (
+                self._refresh_voltage_current_task,
+                self._output_calibration_task,
+                *self._output_toggle_tasks,
+            ) if task is not None
+        ]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        self._refresh_voltage_current_task = None
+        self._output_calibration_task = None
+        self._output_toggle_tasks.clear()
 
         self._sample_failures = 0
         self._clear_sampling_error()
         # 断开即结束会话：一段文件对应一次连接，复看时能对上"哪次接的哪台"。
         self.stop_recording()
-        self._connected_port = None
         await self.model.close()
         self.view.update_connection_state(False)
 
@@ -187,6 +212,7 @@ class Presenter(QObject):
             self._connected_port = serial_port
             self._start_recording()
             self._refresh_voltage_current_task = asyncio.create_task(self.refresh_voltage_current())
+            self._start_output_calibration()
             
         ret = await self.model.get_device_id()
         self.view.update_device_id(ret)      
@@ -200,8 +226,12 @@ class Presenter(QObject):
         try:
             while True:
                 try:
-                    voltage = await self.model.get_voltage()
-                    current = await self.model.get_current()
+                    # 电压和电流是一次不可拆分的设备事务。若前一条命令超时，
+                    # 下一次读取可能先收到它的迟到响应；成对采集期间禁止插入
+                    # OUTP?，避免错误响应在采样与校准之间来回错位。
+                    async with self._device_operation_lock:
+                        voltage = await self.model.get_voltage()
+                        current = await self.model.get_current()
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:
@@ -226,6 +256,42 @@ class Presenter(QObject):
         except asyncio.CancelledError:
             logger.info("Refresh voltage current task cancelled.")
             return
+
+    def _publish_output_state(self, value: bool | None) -> None:
+        """输出状态的唯一发布入口：视图只渲染已确认状态，不自行推断。"""
+        self._output_state = value
+        self.view.update_output_state(value)
+
+    def _start_output_calibration(self) -> None:
+        """每个连接只保留一个校准任务，重复连接不叠加轮询。"""
+        if (self._output_calibration_task is not None
+                and not self._output_calibration_task.done()):
+            return
+        self._output_calibration_task = asyncio.create_task(
+            self._calibrate_output_state())
+
+    async def _calibrate_output_state(self) -> None:
+        """先立即回读，再在每次查询完成后等待 1 秒；始终只有一个在途查询。"""
+        try:
+            while True:
+                async with self._device_operation_lock:
+                    await self.refresh_output_state()
+                await asyncio.sleep(OUTPUT_CALIBRATION_INTERVAL_SECONDS)
+        except asyncio.CancelledError:
+            logger.info("Output calibration task cancelled.")
+
+    async def refresh_output_state(self) -> bool | None:
+        """回读一次设备输出状态；失败只降为 UNKNOWN，不影响 V/I 采样。"""
+        try:
+            value = await self.model.get_on_off(
+                timeout=OUTPUT_CALIBRATION_TIMEOUT_SECONDS)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("输出状态回读失败：%r", exc)
+            value = None
+        self._publish_output_state(value)
+        return value
 
     def _clear_sampling_error(self) -> None:
         """异常指示只在显示过时才撤销，避免没亮过的灯每次成功都"关"一遍。"""
@@ -252,12 +318,42 @@ class Presenter(QObject):
     #     await self.model.set_max_current(current)
     #     self.view.update_max_current_setting(current)
 
-    @asyncSlot(bool)
-    async def set_on_off(self, value: bool):
-        if not await self._may_write_from_panel():
-            logger.info("面板写操作被用户取消：set_on_off=%s", value)
-            return
+    @asyncSlot()
+    async def toggle_output(self):
+        """按最新设备回读切换；未知状态不猜，写后只认回读结果。"""
+        task = asyncio.current_task()
+        if task is not None:
+            self._output_toggle_tasks.add(task)
+        try:
+            if self._connected_port is None or self._output_state is None:
+                logger.info("输出切换未执行：设备未连接或状态未知")
+                return
 
-        await self.model.set_on_off(value)
-        self.view.update_output_setting(value)
+            # 接管确认可能长时间等待用户，不能持有设备锁阻塞 V/I 采样。
+            if not await self._may_write_from_panel():
+                logger.info("面板输出切换被用户取消")
+                return
+
+            async with self._device_operation_lock:
+                # 等待确认或操作锁期间可能已断开，或校准已把状态降为未知。
+                if self._connected_port is None or self._output_state is None:
+                    return
+
+                # 接管确认可能耗时，期间远程客户端仍能写设备：目标必须重新计算。
+                latest = await self.refresh_output_state()
+                if latest is None:
+                    return
+                target = not latest
+                try:
+                    await self.model.set_on_off(target)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning("输出写入失败：%r", exc)
+                    return
+                # 不把 target 当成事实；命令失败或回读失败都由设备回读决定界面。
+                await self.refresh_output_state()
+        finally:
+            if task is not None:
+                self._output_toggle_tasks.discard(task)
         

@@ -33,7 +33,7 @@ class StubPresenter:
     def set_voltage(self, value):
         pass
 
-    def set_on_off(self, value):
+    def toggle_output(self):
         pass
 
     # 记录页在 _mount_record_tab 阶段就引用它们，桩件缺一个就构造不出窗口。
