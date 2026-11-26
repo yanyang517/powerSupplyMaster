@@ -12,6 +12,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# pyserial-asyncio 在 Windows 上默认每 0.5ms 轮询一次串口。qasync 会把延时
+# 换算成 int(秒 * 1000) 毫秒的 Qt 定时器，0.5ms 因此被截断成 0ms，令事件循环
+# 在串口连接期间持续空转。1ms 足以避免截断，额外响应延迟也可忽略。
+MIN_SERIAL_POLL_INTERVAL_SECONDS = 0.001
+
+
+def _clamp_serial_poll_interval(writer) -> None:
+    """避免 Windows 串口传输退化成的 0ms 自续期轮询。"""
+    transport = writer.transport
+    transport._poll_wait_time = max(
+        getattr(transport, "_poll_wait_time", 0.0),
+        MIN_SERIAL_POLL_INTERVAL_SECONDS,
+    )
+
 
 def singleton(cls):
     instances = {}
@@ -91,6 +105,7 @@ class SCPI_PowerSupply(object):
             self.serial_number = serial_number
             self.baudrate = baudrate
             self._reader, self._writer = await serial_asyncio.open_serial_connection(url=self.serial_number, baudrate=self.baudrate)
+            _clamp_serial_poll_interval(self._writer)
 
             self.identifier = await self.get_identifier()
             self.is_connected = True
