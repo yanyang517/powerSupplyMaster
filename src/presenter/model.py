@@ -31,6 +31,11 @@ class PowerSupplyModel():
         await self.device.set_on_off(value)
         logger.info(f"Set on/off: {value}")
 
+    async def get_on_off(self, *, timeout: float = 1.0) -> bool:
+        value = await self.device.get_on_off(timeout=timeout)
+        logger.info(f"Output status: {value}")
+        return value
+
     async def get_voltage(self) -> float:
         value = await self.device.get_voltage()
         return value

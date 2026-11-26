@@ -45,19 +45,48 @@ class SCPI_PowerSupply(object):
         self.last_error = ""
         self.serial_number = ""
         self.baudrate = 115200
+        # 一条查询超时后，设备仍可能随后送出响应。下一条命令发送前必须先
+        # 消费这条迟到响应，否则无请求标识的 SCPI 逐行协议会永久错位。
+        self._response_recovery_pending = False
 
-    async def _send_cmd(self, command, wait_response: bool = True) -> bytes:
-        
+    async def _send_cmd(self, command, wait_response: bool = True,
+                        timeout: float = 1.0) -> bytes:
+
         async with self._locker:
             try:
+                if self._response_recovery_pending:
+                    logger.warning("waiting for late response before sending %r", command)
+                    stale_response = await asyncio.wait_for(
+                        self._reader.readline(), timeout=timeout)
+                    if not stale_response:
+                        raise ConnectionError("connection closed during response recovery")
+                    logger.info("Discarded late response: %r", stale_response)
+                    self._response_recovery_pending = False
+
                 logger.info(f"Sending command: {command}")
                 self._writer.write(command)
-                await asyncio.wait_for( self._writer.drain() , timeout=1)
+                try:
+                    await asyncio.wait_for(self._writer.drain(), timeout=timeout)
+                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    # write() 已把命令交给传输层；即使 drain 未完成，设备也可能
+                    # 已经收到并回复。查询命令必须把这条回复留给下一次恢复读取。
+                    if wait_response:
+                        self._response_recovery_pending = True
+                    raise
 
                 if not wait_response:
                     return b""
 
-                response = await asyncio.wait_for( self._reader.readline() , timeout=1)
+                try:
+                    response = await asyncio.wait_for(
+                        self._reader.readline(), timeout=timeout)
+                except asyncio.TimeoutError:
+                    self._response_recovery_pending = True
+                    raise
+                except asyncio.CancelledError:
+                    # 命令已经写出；取消读取不等于设备停止响应。
+                    self._response_recovery_pending = True
+                    raise
                 logger.info(f"Received response: {response}")
             except asyncio.TimeoutError as e:
                 logger.error(f"send_cmd timeout: {command=}, {e}")
@@ -96,6 +125,7 @@ class SCPI_PowerSupply(object):
         return float(response.decode().strip().split()[0])
 
     async def connect(self, *, serial_number, baudrate: int = 115200) -> bool:
+        self._response_recovery_pending = False
         try:
             self.serial_number = serial_number
             self.baudrate = baudrate
@@ -126,10 +156,16 @@ class SCPI_PowerSupply(object):
         self._reader = None
         self._writer = None
         self.is_connected = False
+        self._response_recovery_pending = False
 
-    async def get_on_off(self) -> bool:
-        response = await self._send_cmd(b"OUTP?\n")
-        return response.decode().strip() == "ON"
+    async def get_on_off(self, *, timeout: float = 1.0) -> bool:
+        response = await self._send_cmd(b"OUTP?\n", timeout=timeout)
+        status = response.decode().strip().upper()
+        if status == "ON":
+            return True
+        if status == "OFF":
+            return False
+        raise ValueError(f"invalid OUTP? response: {status!r}")
 
 
 if __name__ == "__main__":

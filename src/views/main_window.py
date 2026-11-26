@@ -56,6 +56,8 @@ class MainWindow(QMainWindow):
         
         # Chart initialization flag
         self._chart_initialized = False
+        self._device_connected = False
+        self._output_state: bool | None = None
 
         self.setupUi()
         self.connect_signal_slots()
@@ -66,7 +68,7 @@ class MainWindow(QMainWindow):
 
         self.floating_window = FloatingWindow()
         self.floating_window.request_show_main.connect(self._show_main_window)
-        self.floating_window.request_output_off.connect(self._turn_output_off)
+        self.floating_window.request_output_toggle.connect(self.toggle_output)
         self.floating_window.show()
 
         self._voltage_is_updating = False
@@ -366,9 +368,10 @@ class MainWindow(QMainWindow):
         # Update chart data
         self._update_chart_data(value, "current")
 
-    def toggle_output(self, checked: bool):
-        """目标值只交给 presenter：写成功才改按钮文案，用户取消接管时保持原样。"""
-        self.presenter.set_on_off(checked)
+    def toggle_output(self, checked: bool = False):
+        """点击只代表切换请求；先撤销自动勾选，最终外观只由设备回读决定。"""
+        self.ui.ouput_ctrl_Btn.setChecked(self._output_state is True)
+        self.presenter.toggle_output()
 
     def _show_main_window(self):
         """最小化状态下 raise_() 单独不起作用，必须先 showNormal()。"""
@@ -376,11 +379,22 @@ class MainWindow(QMainWindow):
         self.raise_()
         self.activateWindow()
 
-    def _turn_output_off(self):
-        self.presenter.set_on_off(False)
-
-    def update_output_setting(self, value: bool):
-        self.ui.ouput_ctrl_Btn.setText("关闭输出" if value else "开启输出")
+    def update_output_state(self, value: bool | None):
+        """主窗口与悬浮窗共用的三态渲染入口。"""
+        self._output_state = value
+        button = self.ui.ouput_ctrl_Btn
+        available = self._device_connected and value is not None
+        button.setEnabled(available)
+        button.setChecked(value is True)
+        if value is True:
+            button.setText("关闭输出")
+        elif value is False:
+            button.setText("开启输出")
+        else:
+            button.setText("输出状态不可用")
+        floating = getattr(self, "floating_window", None)
+        if floating is not None:
+            floating.update_output_state(value)
 
     def update_device_id(self, value):
         """presenter 连接后回填设备标识；读不到时留空而不是报错。"""
@@ -394,6 +408,9 @@ class MainWindow(QMainWindow):
         """
         self.ui.connect_Btn.setEnabled(not connected)
         self.ui.disconnect_Btn.setEnabled(connected)
+        self._device_connected = connected
+        if not connected:
+            self.update_output_state(None)
         if connected:
             self.connection_status_label.setText(f"已连接 {port}" if port else "已连接")
             self.connection_status_label.setObjectName("conn_status_on")
