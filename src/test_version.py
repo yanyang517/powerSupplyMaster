@@ -45,7 +45,7 @@ def injected_build_info(tmp_path, monkeypatch):
 class TestVersionDefinition:
     def test_version_follows_three_digit_semver(self):
         assert version_module.is_valid_version() is True
-        assert version_module.version_tuple() == (0, 1, 3)
+        assert version_module.version_tuple() == (0, 4, 0)
 
     def test_rejects_non_numeric_and_extra_segments(self):
         for bad in ("1.0", "1.0.0.0", "v1.0.0", "1.0.x", "", "1.0.0-rc1"):
