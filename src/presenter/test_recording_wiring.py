@@ -8,6 +8,7 @@ import asyncio
 import csv
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 from recording.recorder import INDEX_FILE_NAME
 from recording.settings import RecordSettings
@@ -119,6 +120,8 @@ def make(tmp_path, monkeypatch, model=None, enabled=False, port="COM8"):
     settings = RecordSettings(enabled=enabled, dir=str(tmp_path / "records"))
     monkeypatch.setattr(presenter_mod, "load_settings", lambda *a, **k: settings)
     monkeypatch.setattr(presenter_mod, "save_settings", lambda _s: True)
+    monkeypatch.setattr(presenter_mod, "load_last_port", lambda *a, **k: None)
+    monkeypatch.setattr(presenter_mod, "save_last_port", lambda _p: True)
     monkeypatch.setattr(presenter_mod, "SAMPLE_INTERVAL_SECONDS", 0)
     return Presenter(lambda presenter=None: RecordingView(presenter, port),
                      lambda: model or CountingModel())
@@ -394,6 +397,37 @@ class TestStartupReconcile:
         assert not (tmp_path / "records").exists()
 
 
+class TestPortSelection:
+    @staticmethod
+    def ports():
+        return [
+            SimpleNamespace(device="COM3", description="USB Serial Port"),
+            SimpleNamespace(device="COM8", description="Communications Port"),
+            SimpleNamespace(device="COM9", description=None),
+        ]
+
+    def test_available_last_successful_port_is_preferred(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(presenter_mod.list_ports, "comports", self.ports)
+        presenter = make(tmp_path, monkeypatch)
+        monkeypatch.setattr(presenter_mod, "load_last_port", lambda *a, **k: "COM9")
+
+        assert presenter.get_available_ports() == (["COM3", "COM8", "COM9"], 2)
+
+    def test_unavailable_last_port_falls_back_to_usb(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(presenter_mod.list_ports, "comports", self.ports)
+        presenter = make(tmp_path, monkeypatch)
+        monkeypatch.setattr(presenter_mod, "load_last_port", lambda *a, **k: "COM7")
+
+        assert presenter.get_available_ports() == (["COM3", "COM8", "COM9"], 0)
+
+    def test_no_history_or_usb_port_leaves_default_selection(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(presenter_mod.list_ports, "comports", lambda: [
+            SimpleNamespace(device="COM8", description="Communications Port")])
+        presenter = make(tmp_path, monkeypatch)
+
+        assert presenter.get_available_ports() == (["COM8"], None)
+
+
 class TestConnectionStateIsReported:
     """互斥按钮与状态栏指示的唯一凭据就是这一句：视图收到的是连接结果，不是点击。"""
 
@@ -415,3 +449,34 @@ class TestConnectionStateIsReported:
 
         assert presenter.view.connection_states[0] == (True, "COM8")
         assert presenter.view.connection_states[-1] == (False, None)
+
+    def test_successful_open_remembers_the_port(self, tmp_path, monkeypatch):
+        presenter = make(tmp_path, monkeypatch, port="COM9")
+        saved = []
+        monkeypatch.setattr(presenter_mod, "save_last_port", saved.append)
+
+        asyncio.run(Presenter.open_device.__wrapped__(presenter))
+        disconnect(presenter)
+
+        assert saved == ["COM9"]
+
+    def test_failed_open_does_not_replace_the_remembered_port(self, tmp_path, monkeypatch):
+        presenter = make(tmp_path, monkeypatch, model=CountingModel(open_ok=False), port="COM9")
+
+        def unexpected_save(port):
+            raise AssertionError(f"failed connection must not remember {port}")
+
+        monkeypatch.setattr(presenter_mod, "save_last_port", unexpected_save)
+        asyncio.run(Presenter.open_device.__wrapped__(presenter))
+
+        assert presenter.view.connection_states == [(False, None)]
+
+    def test_remembering_failure_does_not_break_a_successful_connection(self, tmp_path, monkeypatch):
+        presenter = make(tmp_path, monkeypatch)
+        monkeypatch.setattr(presenter_mod, "save_last_port", lambda _port: False)
+
+        asyncio.run(Presenter.open_device.__wrapped__(presenter))
+        disconnect(presenter)
+
+        assert presenter.view.connection_states[0] == (True, "COM8")
+        assert presenter._connected_port is None

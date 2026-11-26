@@ -17,11 +17,13 @@ from .main_window import MainWindow
 class StubPresenter:
     """只提供 MainWindow 构造与接线阶段会访问的成员。"""
 
-    def __init__(self):
+    def __init__(self, ports=(), preferred_index=None):
         self.output_toggles = 0
+        self._ports = list(ports)
+        self._preferred_index = preferred_index
 
     def get_available_ports(self):
-        return [], 0
+        return self._ports, self._preferred_index
 
     def open_device(self):
         pass
@@ -48,15 +50,50 @@ def qapp():
 
 
 @pytest.fixture
-def window(qapp, tmp_path, monkeypatch):
+def make_window(qapp, tmp_path, monkeypatch):
     monkeypatch.setattr(
         "views.window_geometry.geometry_file_path",
         lambda *a, **k: tmp_path / "window_geometry.json",
     )
-    win = MainWindow(StubPresenter())
-    yield win
-    win.floating_window.close()
-    win.close()
+    windows = []
+
+    def build(ports=(), preferred_index=None):
+        win = MainWindow(StubPresenter(ports, preferred_index))
+        windows.append(win)
+        return win
+
+    yield build
+    for win in windows:
+        win.floating_window.close()
+        win.close()
+
+
+@pytest.fixture
+def window(make_window):
+    return make_window()
+
+
+class TestPortSelection:
+    def test_preferred_available_port_becomes_the_default(self, make_window):
+        win = make_window(["COM3", "COM8", "COM9"], 2)
+
+        assert win.ui.com_num_comboBox.currentText() == "COM9"
+
+    def test_usb_port_becomes_the_default_without_a_remembered_port(self, make_window):
+        win = make_window(["COM3", "COM8"], 1)
+
+        assert win.ui.com_num_comboBox.currentText() == "COM8"
+
+    def test_invalid_preference_keeps_the_first_port(self, make_window):
+        win = make_window(["COM3", "COM8"], 9)
+
+        assert win.ui.com_num_comboBox.currentText() == "COM3"
+
+    def test_no_available_ports_leaves_the_combo_empty(self, make_window):
+        win = make_window([], None)
+
+        assert win.ui.com_num_comboBox.count() == 0
+        assert win.ui.com_num_comboBox.currentText() == ""
 
 
 class TestButtonExclusivity:

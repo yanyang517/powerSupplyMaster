@@ -14,6 +14,7 @@ from server.session import lease
 from recording.recorder import Recorder, reconcile_interrupted
 from recording.settings import (NOMINAL_INTERVAL_MS, RecordSettings, load_settings,
                                 records_dir_for, save_settings, settings_file_path)
+from serial_port_settings import choose_port_index, load_last_port, save_last_port
 from views.admission_dialog import AdmissionDialog
 from views.confirmation import ask_yes_no
 
@@ -70,8 +71,9 @@ class Presenter(QObject):
         ports_list = [port.device for port in ports]
         logger.info(f"Available ports: {ports_list}")
 
-        perfered_index = [i for i, port in enumerate(ports) if 'USB' in port.description]
-        return ports_list, perfered_index[0] if len(perfered_index) > 0 else None
+        perfered_index = [i for i, port in enumerate(ports) if 'USB' in (port.description or '')]
+        usb_index = perfered_index[0] if len(perfered_index) > 0 else None
+        return ports_list, choose_port_index(ports_list, load_last_port(), usb_index)
 
     def connect_signal_slots(self):
         pass
@@ -210,6 +212,7 @@ class Presenter(QObject):
         if ret is True:
             self._sample_failures = 0
             self._connected_port = serial_port
+            save_last_port(serial_port)
             self._start_recording()
             self._refresh_voltage_current_task = asyncio.create_task(self.refresh_voltage_current())
             self._start_output_calibration()
