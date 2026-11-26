@@ -18,7 +18,7 @@
 ## 4. 审核与合入
 
 - [x] 4.1 审核最终差异，确认工程改动仅包含波形视图门控和对应测试，未修改 `.ui`、Presenter、服务端、协议或依赖；运行 `openspec validate gate-waveform-refresh-on-display-toggle --strict`，确认变更文档严格校验通过。
-- [ ] 4.2 在相关测试通过并完成差异审核后提交修复，使用 `git merge --no-ff fix/gate-waveform-refresh-on-display-toggle` 合入 master；通过 `git log --merges -1` 确认生成合并提交，并通过 `git status` 确认主工作区无未提交改动。
+- [x] 4.2 在相关测试通过并完成差异审核后提交修复，使用 `git merge --no-ff fix/gate-waveform-refresh-on-display-toggle` 合入 master；通过 `git log --merges -1` 确认生成合并提交，并通过 `git status` 确认主工作区无未提交改动。
 
 ## Workflow follow-up
 
