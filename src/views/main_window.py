@@ -566,7 +566,7 @@ class MainWindow(QMainWindow):
 
     def _update_chart_data(self, value: float, data_type: str):
         """Update chart with new voltage or current data point"""
-        if not self._chart_initialized:
+        if not self._chart_initialized or not self.ui.groupBox_8.isChecked():
             return
         
         # Add new data point
