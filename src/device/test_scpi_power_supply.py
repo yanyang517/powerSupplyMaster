@@ -119,6 +119,18 @@ def test_output_query_honours_short_timeout(psu):
         asyncio.run(psu._send_cmd(b"OUTP?\n", timeout=0.01))
 
 
+def test_closed_serial_response_raises_connection_error(psu):
+    class ClosedReader:
+        async def readline(self):
+            return b""
+
+    psu._reader = ClosedReader()
+    psu._writer = FakeWriter(0.001)
+
+    with pytest.raises(ConnectionError, match="serial connection closed"):
+        asyncio.run(psu._send_cmd(b"OUTP?\n", timeout=0.1))
+
+
 class QueuedReader:
     def __init__(self):
         self.responses = asyncio.Queue()

@@ -93,6 +93,7 @@ class MainWindow(QMainWindow):
         self.ui.com_num_comboBox.addItems(available_ports)
         if perfered_index is not None and 0 <= perfered_index < len(available_ports):
             self.ui.com_num_comboBox.setCurrentIndex(perfered_index)
+        self.ui.auto_reconnect_CB.setChecked(self.presenter.auto_connect_enabled())
 
     def _mount_record_tab(self):
         """.ui 里没有「记录」这一页，整页在代码侧 addTab 挂上（同 _swap_voltage_dial 的约定）。
@@ -311,6 +312,18 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.current_chart_view)
         self._chart_initialized = True
 
+    @Slot(bool)
+    def _on_auto_reconnect_toggled(self, checked: bool):
+        if self.presenter.set_auto_connect(checked):
+            return
+        # 写盘失败时恢复控件，避免界面显示一个并未生效的勾选状态。
+        checkbox = self.ui.auto_reconnect_CB
+        checkbox.blockSignals(True)
+        try:
+            checkbox.setChecked(not checked)
+        finally:
+            checkbox.blockSignals(False)
+
     def connect_signal_slots(self):
 
 
@@ -318,6 +331,7 @@ class MainWindow(QMainWindow):
         self.ui.voltage_dial.valueChanged.connect(self.on_voltage_dial_value_changed)
         self.ui.connect_Btn.clicked.connect(self.presenter.open_device)
         self.ui.disconnect_Btn.clicked.connect(self.presenter.close_device)
+        self.ui.auto_reconnect_CB.toggled.connect(self._on_auto_reconnect_toggled)
         self.ui.ouput_ctrl_Btn.clicked.connect(self.toggle_output)
 
         self.ui.max_voltage_spinbox.valueChanged.connect(lambda value: self.ui.voltage_spinBox.setMaximum(value))

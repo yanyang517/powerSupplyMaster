@@ -66,7 +66,9 @@ class TestSaveLastPort:
         path = tmp_path / "config" / "serial_port.json"
         assert settings.save_last_port("COM9", path) is True
         assert settings.load_last_port(path) == "COM9"
-        assert json.loads(path.read_text(encoding="utf-8")) == {"version": 1, "port": "COM9"}
+        assert json.loads(path.read_text(encoding="utf-8")) == {
+            "version": 1, "port": "COM9", "auto_connect": False,
+        }
 
     @pytest.mark.parametrize("port", [None, 9, "", "   "])
     def test_invalid_port_is_not_written(self, tmp_path, port):
@@ -91,6 +93,44 @@ class TestSaveLastPort:
         assert settings.save_last_port("COM9", path) is False
         assert path.read_text(encoding="utf-8") == before
         assert not path.with_name(path.name + ".tmp").exists()
+
+
+class TestConnectionSettings:
+    def test_missing_file_uses_safe_defaults(self, tmp_path):
+        assert settings.load_settings(tmp_path / "missing.json") == settings.ConnectionSettings()
+
+    def test_old_file_without_auto_connect_remains_compatible(self, tmp_path):
+        path = tmp_path / "serial_port.json"
+        path.write_text(json.dumps({"version": 1, "port": "COM9"}), encoding="utf-8")
+
+        loaded = settings.load_settings(path)
+
+        assert loaded.port == "COM9"
+        assert loaded.auto_connect is False
+
+    @pytest.mark.parametrize("enabled", [True, False])
+    def test_auto_connect_round_trip(self, tmp_path, enabled):
+        path = tmp_path / "serial_port.json"
+        value = settings.ConnectionSettings(port="COM9", auto_connect=enabled)
+
+        assert settings.save_settings(value, path) is True
+        assert settings.load_settings(path) == value
+
+    @pytest.mark.parametrize("value", [None, 0, 1, "true", [], {}])
+    def test_invalid_auto_connect_falls_back_to_false(self, tmp_path, value):
+        path = tmp_path / "serial_port.json"
+        path.write_text(json.dumps({
+            "version": 1, "port": "COM9", "auto_connect": value,
+        }), encoding="utf-8")
+
+        assert settings.load_settings(path).auto_connect is False
+
+    def test_saving_last_port_preserves_auto_connect(self, tmp_path):
+        path = tmp_path / "serial_port.json"
+        settings.save_settings(settings.ConnectionSettings("COM8", True), path)
+
+        assert settings.save_last_port("COM9", path) is True
+        assert settings.load_settings(path) == settings.ConnectionSettings("COM9", True)
 
 
 class TestChoosePortIndex:

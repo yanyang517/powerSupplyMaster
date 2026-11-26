@@ -80,6 +80,8 @@ class SCPI_PowerSupply(object):
                 try:
                     response = await asyncio.wait_for(
                         self._reader.readline(), timeout=timeout)
+                    if not response:
+                        raise ConnectionError("serial connection closed")
                 except asyncio.TimeoutError:
                     self._response_recovery_pending = True
                     raise
