@@ -132,6 +132,10 @@ doc/                    # 架构文档、MCP 接入指南
 scripts/                # PyInstaller 打包脚本、清单生成与校验
 ```
 
+## 日志与排障
+
+源码运行时日志写入仓库根目录的 `logs/powerSupplyMaster.log`；冻结运行时写入 exe 同级的 `logs/powerSupplyMaster.log`。文件记录 DEBUG 及以上级别，单文件达到 5 MiB 后轮转，最多保留 5 份备份；控制台仅显示 INFO 及以上级别。日志目录不可写时会明确警告并降级为仅控制台，不阻止启动。未捕获异常与 asyncio 未取回的任务异常会追加完整 traceback，同时保留 stderr 输出。冻结产物早期的致命启动错误另见 `logs/startup_error.log`。
+
 ## 测试
 
 集成测试（需服务已运行 + 真实或虚拟串口）位于服务端代码同层：

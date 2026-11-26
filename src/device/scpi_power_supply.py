@@ -5,11 +5,6 @@ import asyncio
 import serial_asyncio
 import serial  # 用于定义串口参数（如数据位、校验位）
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 # pyserial-asyncio 在 Windows 上默认每 0.5ms 轮询一次串口。qasync 会把延时

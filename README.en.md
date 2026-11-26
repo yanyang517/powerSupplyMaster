@@ -132,6 +132,10 @@ doc/                    # architecture docs, MCP integration guide
 scripts/                # PyInstaller build script, manifest generation and checks
 ```
 
+## Logs and troubleshooting
+
+Source runs write to `logs/powerSupplyMaster.log` at the repository root; frozen runs write to `logs/powerSupplyMaster.log` beside the executable. Files capture DEBUG and above, rotate at 5 MiB, and retain up to 5 backups; the console shows INFO and above. An unwritable log directory produces an explicit warning and falls back to console-only logging without blocking startup. Uncaught exceptions and unretrieved asyncio task exceptions append full tracebacks while preserving stderr output. Early fatal startup errors in frozen builds are also recorded in `logs/startup_error.log`.
+
 ## Testing
 
 Integration tests (a running server + a real or virtual COM port) live next to the server code:

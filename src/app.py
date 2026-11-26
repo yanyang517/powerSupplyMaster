@@ -8,6 +8,12 @@ from pathlib import Path
 from qasync import QEventLoop, asyncSlot, asyncClose
 from PySide6.QtWidgets import QApplication
 
+from logging_config import (
+    LOG_DIR_NAME,
+    configure_logging,
+    install_asyncio_exception_handler,
+    install_excepthook,
+)
 from server.socket_server import SocketServer, server_main
 from server.runtime_config import runtime_config
 from server.registry import ClientRegistry, RegistryError, clients_file_path, use_registry
@@ -20,18 +26,12 @@ from presenter.model import PowerSupplyModel
 from views import icons, update_notice
 import version
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 # --- 启动失败的可见性 -------------------------------------------------------
 # 被 --windowed 打成的产物双击时没有控制台，Windows 上 sys.stderr 会是 None，日志因此
 # 静默丢失（实测 CPython 3.13 不抛异常：Handler.handleError 被 `if raiseExceptions and
 # sys.stderr` 短路）。用户只剩「双击没反应」，所以致命的启动错误必须另有不依赖 stderr 的通道。
-LOGS_DIR_NAME = "logs"
 STARTUP_ERROR_FILE_NAME = "startup_error.log"
 
 
@@ -50,7 +50,7 @@ def startup_error_log_path() -> Path:
     落在 logs/ 而不是 config/：config/ 是准入名单这类设置的地盘，而这里服务的恰恰是
     「设置出问题时」；.gitignore 也已为 logs/ 预留。
     """
-    return Path(sys.executable).resolve().parent / LOGS_DIR_NAME / STARTUP_ERROR_FILE_NAME
+    return Path(sys.executable).resolve().parent / LOG_DIR_NAME / STARTUP_ERROR_FILE_NAME
 
 
 def show_startup_error_dialog(title: str, text: str) -> bool:
@@ -126,7 +126,22 @@ def bootstrap_access(clients_arg, lease_ttl: float) -> ClientRegistry:
     logger.info("client registry: %d client(s), lease ttl %.0fs", len(registry), lease_config.ttl_seconds)
     return registry
 
+
+async def run_server() -> None:
+    """Run the headless server with exception reporting on its actual loop."""
+    install_asyncio_exception_handler(asyncio.get_running_loop())
+    await server_main()
+
+
 def main(args=None):
+    try:
+        configure_logging()
+        install_excepthook()
+    except Exception as exc:
+        # Logging setup itself must remain visible in a windowed frozen app.
+        report_startup_failure(f"logging initialization failed: {exc}")
+        raise
+
     args = parse_args()
     logger.info(version.summary())
     runtime_config.max_voltage = args.max_voltage
@@ -145,6 +160,7 @@ def main(args=None):
     
         loop = QEventLoop(app)
         asyncio.set_event_loop(loop)
+        install_asyncio_exception_handler(loop)
         
         # window = MainWindow()
         # window.show()
@@ -162,7 +178,7 @@ def main(args=None):
         with loop:
             loop.run_forever()
     else:
-        asyncio.run(server_main())
+        asyncio.run(run_server())
 
 if __name__ == '__main__':
     main(sys.argv)
