@@ -176,6 +176,7 @@ class Presenter(QObject):
         self.stop_recording()
         self._connected_port = None
         await self.model.close()
+        self.view.update_connection_state(False)
 
     @asyncSlot()
     async def open_device(self):
@@ -183,6 +184,9 @@ class Presenter(QObject):
         baudrate = self.view.ui.baudrate_comboBox.currentText()
 
         ret = await self.model.open(port=serial_port)
+        # 按钮互斥与状态栏指示只认连接结果：失败分支也要落回未连接态，
+        # 否则一次连不上后「连接」按钮会一直灰着，用户没有任何重试入口。
+        self.view.update_connection_state(ret is True, serial_port if ret is True else None)
         if ret is True:
             self._sample_failures = 0
             self._connected_port = serial_port
