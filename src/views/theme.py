@@ -324,6 +324,28 @@ _RECORD_TEMPLATE = """
 }}
 """
 
+# 状态栏右角的连接指示：接通绿、断开灰（text_dim 与栏内既有次要文字同值）。
+# 两态是两个 objectName（conn_status_on/off），措辞之外的第二通道落在色相上。
+_CONN_STATUS_TEMPLATE = """
+#conn_status_on {{
+    color: {success};
+}}
+
+#conn_status_off {{
+    color: {text_dim};
+}}
+"""
+
+# 禁用态必须按 objectName 再降一次色：上面 `#connect_Btn` 的 ID 优先级压过全局
+# `QPushButton:disabled`，不补这条的话按钮禁下去了颜色还是语义色，看不出不能点。
+# 降色用 text_dim，与栏内次要文字同值；描边轮廓保留，位置与含义都还在。
+_DISABLED_SEMANTIC_BUTTON_TEMPLATE = """
+#{name}:disabled {{
+    color: {text_dim};
+    border-color: {border};
+}}
+"""
+
 
 def tokens(mode: str = "dark") -> dict:
     try:
@@ -341,10 +363,14 @@ def build_qss(mode: str = "dark") -> str:
         qss += _SEMANTIC_BUTTON_TEMPLATE.format(
             name=name, color=t[token], hover=t["hover"]
         )
+        qss += _DISABLED_SEMANTIC_BUTTON_TEMPLATE.format(
+            name=name, text_dim=t["text_dim"], border=t["border"]
+        )
     qss += _OUTPUT_SWITCH_TEMPLATE.format(**t)
     qss += _ABOUT_TEMPLATE.format(**t)
     qss += _UPDATE_TEMPLATE.format(**t)
     qss += _RECORD_TEMPLATE.format(**t)
+    qss += _CONN_STATUS_TEMPLATE.format(**t)
     return qss
 
 

@@ -63,6 +63,8 @@ class MainWindow(QMainWindow):
 
         self.setupUi()
         self.connect_signal_slots()
+        # 初始态显式落一次：uic 生成的是两钮同亮，互斥形态必须由状态层接管。
+        self.update_connection_state(False)
         self.access_panel = AccessPanel(self.ui.groupBox_10, self.ui.groupBox_9)
         self._restore_geometry()
 
@@ -79,6 +81,7 @@ class MainWindow(QMainWindow):
         self.ui.tabWidget.setTabShape(QTabWidget.TabShape.Rounded)
         self._swap_voltage_dial()
         self._apply_button_icons()
+        self._mount_connection_indicator()
 
         # Initialize the chart in groupBox_8
         self._setup_chart()
@@ -175,6 +178,17 @@ class MainWindow(QMainWindow):
         self.ui.ouput_ctrl_Btn.setIconSize(QSize(ICON_PX, ICON_PX))
         self.ui.ouput_ctrl_Btn.toggled.connect(self._set_output_icon)
         self._set_output_icon(self.ui.ouput_ctrl_Btn.isChecked())
+
+    def _mount_connection_indicator(self):
+        """状态栏右角的连接指示。
+
+        用 addPermanentWidget 而不是 showMessage：后者是瞬时消息通道，会被采样
+        异常提示（update_sampling_error）随时覆盖，连接状态必须一直在。永久部件
+        由 QStatusBar 排在栏的右端，与左角的更新提示条（addWidget）各占一角。
+        """
+        self.connection_status_label = QLabel("未连接", self.ui.statusbar)
+        self.connection_status_label.setObjectName("conn_status_off")
+        self.ui.statusbar.addPermanentWidget(self.connection_status_label, 0)
 
     def _set_output_icon(self, checked: bool):
         """输出开关两态同字形、只换色：它已有 2px 边框 + 字重 + 文字三重形态线索。"""
@@ -522,6 +536,24 @@ class MainWindow(QMainWindow):
     def update_device_id(self, value):
         """presenter 连接后回填设备标识；读不到时留空而不是报错。"""
         self.ui.device_info_lineEdit.setText(str(value) if value else "")
+
+    def update_connection_state(self, connected: bool, port: str | None = None):
+        """连接状态唯一入口：两按钮互斥使能，右角指示同步措辞与配色。
+
+        状态只由 presenter 的 open/close 结果驱动，绝不挂在按钮 clicked 上——
+        串口占用导致的连接失败必须停在未连接态，否则指示灯就是谎报。
+        """
+        self.ui.connect_Btn.setEnabled(not connected)
+        self.ui.disconnect_Btn.setEnabled(connected)
+        if connected:
+            self.connection_status_label.setText(f"已连接 {port}" if port else "已连接")
+            self.connection_status_label.setObjectName("conn_status_on")
+        else:
+            self.connection_status_label.setText("未连接")
+            self.connection_status_label.setObjectName("conn_status_off")
+        # objectName 换了要重 polish，QSS 按 #conn_status_on/off 认色（见 theme.py）。
+        self.connection_status_label.style().unpolish(self.connection_status_label)
+        self.connection_status_label.style().polish(self.connection_status_label)
 
     def update_voltage_setting(self, value: float):
         # self.ui.voltage_dial.setValue(value*100)

@@ -40,6 +40,7 @@ class RecordingView:
         self.currents = []
         self.recording_states = []
         self.error_messages = []
+        self.connection_states = []
 
     def show(self):
         pass
@@ -53,6 +54,9 @@ class RecordingView:
     def update_device_id(self, value):
         pass
 
+    def update_connection_state(self, connected, port=None):
+        self.connection_states.append((connected, port))
+
     def update_sampling_error(self, message):
         self.error_messages.append(message)
 
@@ -63,17 +67,19 @@ class RecordingView:
 class CountingModel:
     """数得清调用次数的假设备：记录是否多问一句串口，只能这么验。"""
 
-    def __init__(self, fail_voltage_on=(), fail_current_on=()):
+    def __init__(self, fail_voltage_on=(), fail_current_on=(), open_ok=True):
         self.fail_voltage_on = set(fail_voltage_on)
         self.fail_current_on = set(fail_current_on)
         self.voltage_calls = 0
         self.current_calls = 0
         self.opened = 0
         self.closed = 0
+        # 连接被拒（串口占用等）时的按钮复位行为只有这条路能验。
+        self.open_ok = open_ok
 
     async def open(self, port=None, **kwargs):
         self.opened += 1
-        return True
+        return self.open_ok
 
     async def close(self):
         self.closed += 1
@@ -101,7 +107,8 @@ def make(tmp_path, monkeypatch, model=None, enabled=False, port="COM8"):
     monkeypatch.setattr(presenter_mod, "load_settings", lambda *a, **k: settings)
     monkeypatch.setattr(presenter_mod, "save_settings", lambda _s: True)
     monkeypatch.setattr(presenter_mod, "SAMPLE_INTERVAL_SECONDS", 0)
-    return Presenter(RecordingView, lambda: model or CountingModel())
+    return Presenter(lambda presenter=None: RecordingView(presenter, port),
+                     lambda: model or CountingModel())
 
 
 def connect(presenter, cycles=0):
@@ -353,3 +360,26 @@ class TestStartupReconcile:
 
         assert presenter_mod.load_settings().enabled is False
         assert not (tmp_path / "records").exists()
+
+
+class TestConnectionStateIsReported:
+    """互斥按钮与状态栏指示的唯一凭据就是这一句：视图收到的是连接结果，不是点击。"""
+
+    def test_a_refused_open_reports_offline_not_silence(self, tmp_path, monkeypatch):
+        """串口被占用时连接失败：必须回落未连接态，否则「连接」按钮永远灰着，用户无从重试。"""
+        presenter = make(tmp_path, monkeypatch, model=CountingModel(open_ok=False))
+
+        asyncio.run(Presenter.open_device.__wrapped__(presenter))
+
+        assert presenter.view.connection_states == [(False, None)]
+        assert presenter._connected_port is None
+        assert presenter._refresh_voltage_current_task is None
+
+    def test_a_successful_open_reports_online_with_the_port(self, tmp_path, monkeypatch):
+        presenter = make(tmp_path, monkeypatch)
+
+        asyncio.run(Presenter.open_device.__wrapped__(presenter))
+        disconnect(presenter)
+
+        assert presenter.view.connection_states[0] == (True, "COM8")
+        assert presenter.view.connection_states[-1] == (False, None)

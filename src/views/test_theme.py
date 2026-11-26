@@ -91,6 +91,24 @@ def test_update_notice_rules_are_scoped_and_dim_matched():
     )
 
 
+def test_connection_indicator_and_disabled_button_rules_are_scoped():
+    """状态栏指示按 objectName 限定（裸 QLabel 会连读数标签一起改），
+    且按钮禁用态必须有 objectName 级规则：`#connect_Btn` 的 ID 优先级压过
+    全局 `QPushButton:disabled`，少了它禁用态看起来与可用态一模一样。"""
+    qss = build_qss(MODE)
+    t = tokens(MODE)
+    for name in ("conn_status_on", "conn_status_off"):
+        assert f"#{name}" in qss, name
+    block = re.search(r"#conn_status_on\s*\{[^}]*\}", qss).group(0)
+    assert f"color: {t['success']}" in block
+    block = re.search(r"#conn_status_off\s*\{[^}]*\}", qss).group(0)
+    assert f"color: {t['text_dim']}" in block
+    for name in ("connect_Btn", "disconnect_Btn"):
+        block = re.search(rf"#{name}:disabled\s*\{{[^}}]*\}}", qss)
+        assert block, name
+        assert f"color: {t['text_dim']}" in block.group(0)
+
+
 def test_build_palette_matches_tokens():
     t = tokens(MODE)
     palette = build_palette(MODE)
