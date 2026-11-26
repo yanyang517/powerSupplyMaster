@@ -52,7 +52,24 @@ def window(qapp):
     return MainWindow(presenter=StubPresenter())
 
 
+def chart_snapshot(window):
+    return (
+        window.voltage_data_count,
+        window.current_data_count,
+        list(window.voltage_data),
+        list(window.current_data),
+        [(point.x(), point.y()) for point in window.voltage_series.pointsVector()],
+        [(point.x(), point.y()) for point in window.current_series.pointsVector()],
+        (window.voltage_axis_x.min(), window.voltage_axis_x.max()),
+        (window.current_axis_x.min(), window.current_axis_x.max()),
+    )
+
+
 class TestRollingWindow:
+    @pytest.fixture(autouse=True)
+    def enable_waveform(self, window):
+        window.ui.groupBox_8.setChecked(True)
+
     def test_series_stays_bounded_after_a_long_run(self, window):
         for _ in range(5000):
             window.update_voltage(12.0)
@@ -78,6 +95,62 @@ class TestRollingWindow:
 
         assert points[-1].y() == 499.0
         assert points[0].y() == 400.0
+
+
+class TestWaveformDisplayToggle:
+    def test_default_unchecked_disables_charts_but_keeps_toggle_enabled(self, window):
+        assert not window.ui.groupBox_8.isChecked()
+        assert window.ui.groupBox_8.isEnabled()
+        assert not window.voltage_chart_view.isEnabled()
+        assert not window.current_chart_view.isEnabled()
+
+    def test_unchecked_ignores_samples_but_updates_readouts(self, window):
+        before = chart_snapshot(window)
+
+        window.update_voltage(12.34)
+        window.update_current(1.23)
+
+        assert chart_snapshot(window) == before
+        assert window.ui.volatage_label.text() == "12.34 V"
+        assert window.ui.current_label.text() == "1.23 A"
+        assert window.floating_window.ui.voltage_label.text() == "12.34 V"
+        assert window.floating_window.ui.current_label.text() == "1.23 A"
+
+    def test_pause_keeps_snapshot_and_resume_skips_hidden_samples(self, window):
+        window.ui.groupBox_8.setChecked(True)
+        window.update_voltage(10.0)
+        window.update_current(1.0)
+        before = chart_snapshot(window)
+
+        window.ui.groupBox_8.setChecked(False)
+        assert not window.voltage_chart_view.isEnabled()
+        assert not window.current_chart_view.isEnabled()
+
+        window.update_voltage(20.0)
+        window.update_current(2.0)
+        window.update_voltage(30.0)
+        window.update_current(3.0)
+
+        assert chart_snapshot(window) == before
+        assert window.ui.volatage_label.text() == "30.00 V"
+        assert window.ui.current_label.text() == "3.00 A"
+
+        window.ui.groupBox_8.setChecked(True)
+        assert window.voltage_chart_view.isEnabled()
+        assert window.current_chart_view.isEnabled()
+        assert chart_snapshot(window) == before
+
+        window.update_voltage(11.0)
+        window.update_current(1.5)
+
+        assert window.voltage_data_count == 2
+        assert window.current_data_count == 2
+        assert window.voltage_data == [10.0, 11.0]
+        assert window.current_data == [1.0, 1.5]
+        voltage_points = window.voltage_series.pointsVector()
+        current_points = window.current_series.pointsVector()
+        assert [point.y() for point in voltage_points] == [10.0, 11.0]
+        assert [point.y() for point in current_points] == [1.0, 1.5]
 
 
 class TestStaleReadoutIndicator:
