@@ -88,6 +88,8 @@ class MainWindow(QMainWindow):
 
         available_ports, perfered_index = self.presenter.get_available_ports()
         self.ui.com_num_comboBox.addItems(available_ports)
+        if perfered_index is not None and 0 <= perfered_index < len(available_ports):
+            self.ui.com_num_comboBox.setCurrentIndex(perfered_index)
 
     def _mount_record_tab(self):
         """.ui 里没有「记录」这一页，整页在代码侧 addTab 挂上（同 _swap_voltage_dial 的约定）。
