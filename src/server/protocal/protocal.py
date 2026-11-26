@@ -3,11 +3,6 @@ import uuid
 from typing import Literal, Annotated, Union
 
 from pydantic import TypeAdapter, BaseModel, Field, Tag
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 # 基础请求模型

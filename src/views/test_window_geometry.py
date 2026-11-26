@@ -1,13 +1,10 @@
 import json
-import logging
 import os
 from pathlib import Path
 
 import pytest
 
 from . import window_geometry as wg
-
-logging.basicConfig(level=logging.DEBUG)
 
 MAIN_RECT = (320, 180, 1000, 700)
 FLOATING_POS = (1450, 980)

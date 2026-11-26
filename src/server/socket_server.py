@@ -11,12 +11,18 @@ from pydantic import ValidationError
 from .dispatcher import dispatcher
 from .session import hub
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
+
+
+def _bound_addresses(server) -> list[str]:
+    """Format addresses reported by the sockets, not the requested host/port."""
+    addresses = []
+    for sock in server.sockets or ():
+        address = sock.getsockname()
+        host, port = address[:2]
+        host = str(host)
+        addresses.append(f"[{host}]:{port}" if ":" in host else f"{host}:{port}")
+    return addresses
 
 
 # Construct protocol definition for length-prefixed messages
@@ -159,13 +165,20 @@ class SocketServer:
                 await writer.wait_closed()
             except ConnectionError as e:
                 logger.debug(f"closing socket of {addr}: {e}")
-            print(f"Client disconnected: {addr}")
     
     async def start(self):
         server = await asyncio.start_server(
             self.handle_client, self.host, self.port
         )
-        print(f"Server started on {self.host}:{self.port}")
+        addresses = _bound_addresses(server)
+        if addresses:
+            logger.info("Server started on %s", ", ".join(addresses))
+        else:
+            logger.warning(
+                "Server started without bound socket addresses (requested %s:%s)",
+                self.host,
+                self.port,
+            )
         async with server:
             await server.serve_forever()
 

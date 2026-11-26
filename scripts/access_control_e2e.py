@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from device.scpi_power_supply import SCPI_PowerSupply  # noqa: E402
+from logging_config import configure_logging  # noqa: E402
 from server.access import set_approval_handler  # noqa: E402
 from server.registry import ClientRegistry, Tier, use_registry  # noqa: E402
 from server.session import lease, lease_config  # noqa: E402
@@ -160,7 +161,7 @@ def main() -> int:
     parser.add_argument("--verbose", action="store_true", help="打印服务端日志")
     args = parser.parse_args()
 
-    # 服务端模块导入时已经 basicConfig 过，这里只能直接改根 logger 的级别
+    configure_logging()
     logging.getLogger().setLevel(logging.INFO if args.verbose else logging.ERROR)
     fake_device()
     asyncio.run(scenario(args.port, args.lease_ttl, args.verbose))

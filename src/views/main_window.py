@@ -26,11 +26,6 @@ from .update_notice import ManualCheckRow, UpdateNoticeWidget
 from . import icons
 from . import window_geometry as wg
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 ICON_PX = 16

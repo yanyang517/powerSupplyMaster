@@ -19,11 +19,6 @@ from views.confirmation import ask_yes_no
 
 from .model import PowerSupplyModel
 
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 # 连续失败到这个次数才向界面明示：偶发一次超时不值得闪一下状态栏。
