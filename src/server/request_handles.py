@@ -43,11 +43,6 @@ from .protocal.protocal import (
 )
 from .runtime_config import runtime_config
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
 logger = logging.getLogger(__name__)
 
 @dispatcher.register("echo", BaseRequest, tier=Tier.L0, public=True)

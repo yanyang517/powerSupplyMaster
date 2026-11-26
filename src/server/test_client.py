@@ -30,7 +30,6 @@ from .protocal.protocal import (
 # 集成测试身份：需要在服务端登记表里存在（默认 config/clients.json 已带这条）
 CLIENT_ID = "test-client"
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
