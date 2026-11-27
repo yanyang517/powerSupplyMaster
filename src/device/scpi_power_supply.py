@@ -12,6 +12,9 @@ logger = logging.getLogger(__name__)
 # 在串口连接期间持续空转。1ms 足以避免截断，额外响应延迟也可忽略。
 MIN_SERIAL_POLL_INTERVAL_SECONDS = 0.001
 
+# OUTP OFF 后立即回读可能赶上真机输出继电器/内部状态切换，给设备 50ms 稳定时间。
+OUTPUT_OFF_SETTLE_SECONDS = 0.05
+
 
 def _clamp_serial_poll_interval(writer) -> None:
     """避免 Windows 串口传输退化成的 0ms 自续期轮询。"""
@@ -50,7 +53,7 @@ class SCPI_PowerSupply(object):
         self._response_recovery_pending = False
 
     async def _send_cmd(self, command, wait_response: bool = True,
-                        timeout: float = 1.0) -> bytes:
+                        timeout: float = 1.0, settle_delay: float = 0.0) -> bytes:
 
         async with self._locker:
             try:
@@ -84,6 +87,10 @@ class SCPI_PowerSupply(object):
                     raise
 
                 if not wait_response:
+                    # 稳定等待必须留在命令锁内，避免采样或远程查询在设备尚未
+                    # 完成输出状态切换时插入下一条 SCPI 命令。
+                    if settle_delay > 0:
+                        await asyncio.sleep(settle_delay)
                     return b""
 
                 try:
@@ -127,7 +134,11 @@ class SCPI_PowerSupply(object):
         if on:
             await self._send_cmd(b"OUTP ON\n", wait_response=False)
         else:
-            await self._send_cmd(b"OUTP OFF\n", wait_response=False)
+            await self._send_cmd(
+                b"OUTP OFF\n",
+                wait_response=False,
+                settle_delay=OUTPUT_OFF_SETTLE_SECONDS,
+            )
 
     # get current
     async def get_current(self) -> float:
