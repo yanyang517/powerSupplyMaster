@@ -7,12 +7,19 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
+from collections import deque
 from dataclasses import dataclass
 from typing import Callable
 
-from .registry import Principal, Tier, get_registry
-from .session import PendingApproval, Session, access_config, lease, pending_approvals
+from .registry import Principal, RegistryError, Tier, get_registry, normalize_client_id
+from .runtime_config import (
+    ADMISSION_RATE_WINDOW_SECONDS,
+    MAX_ADMISSION_ATTEMPTS,
+    MAX_REGISTRY_CLIENTS,
+)
+from .session import LeaseReservation, PendingApproval, Session, access_config, lease, pending_approvals
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +31,7 @@ class Decision:
     allowed: bool
     reason: str = ""
     message: str = ""
+    reservation: LeaseReservation | None = None
 
     @property
     def denied(self) -> bool:
@@ -39,6 +47,47 @@ class Admission:
     principal: Principal | None = None
     reason: str = ""
     message: str = ""
+
+
+class AdmissionRateLimiter:
+    """Process-wide sliding window for first-contact admission attempts."""
+
+    def __init__(
+        self,
+        max_attempts: int = MAX_ADMISSION_ATTEMPTS,
+        window_seconds: float = ADMISSION_RATE_WINDOW_SECONDS,
+    ):
+        if max_attempts < 1 or window_seconds <= 0:
+            raise ValueError("admission rate limit must be positive")
+        self.max_attempts = max_attempts
+        self.window_seconds = window_seconds
+        self._attempts: deque[float] = deque()
+
+    def _purge(self, now: float) -> None:
+        cutoff = now - self.window_seconds
+        while self._attempts and self._attempts[0] <= cutoff:
+            self._attempts.popleft()
+
+    def allow(self, now: float | None = None) -> bool:
+        now = time.monotonic() if now is None else now
+        self._purge(now)
+        if len(self._attempts) >= self.max_attempts:
+            return False
+        self._attempts.append(now)
+        return True
+
+    def retry_after_seconds(self, now: float | None = None) -> float:
+        now = time.monotonic() if now is None else now
+        self._purge(now)
+        if len(self._attempts) < self.max_attempts:
+            return 0.0
+        return max(0.0, self._attempts[0] + self.window_seconds - now)
+
+    def reset(self) -> None:
+        self._attempts.clear()
+
+
+admission_rate_limiter = AdmissionRateLimiter()
 
 
 def _allow() -> Decision:
@@ -71,10 +120,11 @@ def _lease_decision(session: Session, command: str) -> Decision:
     holder = lease.holder
     client_id = session.client_id
     if holder is None or holder == client_id:
-        # 隐式认领：认领与执行在同一次请求内完成，无需独立的 acquire 往返。
-        if not lease.claim(client_id, session.tier):
+        # 隐式预留：在进入处理器前独占控制权，成功提交、失败回滚。
+        reservation = lease.reserve(client_id, session.tier)
+        if reservation is None:
             return Decision(False, "lease_lost", f"command {command!r} lost the lease race; retry")
-        return _allow()
+        return Decision(True, reservation=reservation)
 
     snap = lease.snapshot()
     return Decision(
@@ -88,18 +138,30 @@ def _lease_decision(session: Session, command: str) -> Decision:
     )
 
 
-def record_write(session: Session) -> None:
-    """只有成功落地的写操作才为控制权续期。"""
-    if session.client_id:
-        lease.record_write(session.client_id)
+def commit_write(reservation: LeaseReservation | None) -> bool:
+    """成功落地的写操作提交预留并为控制权续期。"""
+    return reservation is not None and lease.commit(reservation)
+
+
+def rollback_write(reservation: LeaseReservation | None) -> bool:
+    """确定未写入的失败请求回滚本次新建的预留。"""
+    return reservation is not None and lease.rollback(reservation)
+
+
+def quarantine_write(reservation: LeaseReservation | None, reason: str) -> bool:
+    """写入结果不明时隔离预留，避免立即把设备交给另一个客户端。"""
+    return reservation is not None and lease.quarantine(reservation, reason)
 
 
 def panel_revoke() -> str | None:
-    """面板强制吊销：归属立即空闲、设备输出不动，审计里标明发起方是面板。"""
+    """面板强制吊销：空闲时立即释放，在途/隔离时拒绝并审计，设备输出不动。"""
     holder = lease.revoke()
     if holder is not None:
         audit_logger.warning("ACCESS origin=panel cmd=revoke_lease revoked=%s result=success",
                              holder)
+    elif lease.reservation_busy:
+        audit_logger.warning("ACCESS origin=panel cmd=revoke_lease result=busy holder=%s",
+                             lease.holder)
     return holder
 
 
@@ -143,7 +205,12 @@ def has_approver() -> bool:
 
 
 async def admit(session: Session, client_id: str, requested_tier: Tier) -> Admission:
-    """未登记客户端的首次准入：L0 自动放行，L1/L2 交给用户确认。"""
+    """首次准入：已登记直接登录，新身份受全局限速与登记表容量约束。"""
+    try:
+        client_id = normalize_client_id(client_id)
+    except RegistryError as e:
+        return Admission(False, None, "invalid_client_id", str(e))
+
     registry = get_registry()
 
     known = registry.get(client_id)
@@ -154,9 +221,30 @@ async def admit(session: Session, client_id: str, requested_tier: Tier) -> Admis
                              f"granted {known.tier.name} as registered (requested {requested_tier.name})")
         return Admission(True, known, "registered", "")
 
+    if len(registry) >= MAX_REGISTRY_CLIENTS:
+        message = (
+            f"client registry is full (maximum {MAX_REGISTRY_CLIENTS} entries); "
+            "remove unused entries before admitting new clients"
+        )
+        audit_admission(client_id, requested_tier, "registry_full", False)
+        return Admission(False, None, "registry_full", message)
+
+    if not admission_rate_limiter.allow():
+        retry_after = admission_rate_limiter.retry_after_seconds()
+        message = (
+            f"too many first-contact admission attempts; retry after "
+            f"{max(1, round(retry_after))} second(s)"
+        )
+        audit_admission(client_id, requested_tier, "rate_limited", False)
+        return Admission(False, None, "rate_limited", message)
+
     if requested_tier is Tier.L0:
         principal = Principal(client_id, Tier.L0, client_id)
-        registry.add(principal)
+        try:
+            registry.add(principal)
+        except RegistryError as e:
+            audit_admission(client_id, Tier.L0, "registry_full", False)
+            return Admission(False, None, "registry_full", str(e))
         audit_admission(client_id, Tier.L0, "auto_admitted_l0", True)
         return Admission(True, principal, "auto_admitted_l0", "")
 
@@ -192,6 +280,10 @@ async def admit(session: Session, client_id: str, requested_tier: Tier) -> Admis
         return Admission(False, None, reason, f"admission {reason.replace('_', ' ')}")
 
     principal = Principal(client_id, requested_tier, client_id)
-    registry.add(principal)
+    try:
+        registry.add(principal)
+    except RegistryError as e:
+        audit_admission(client_id, requested_tier, "registry_full", False)
+        return Admission(False, None, "registry_full", str(e))
     return Admission(True, principal, reason, "")
 

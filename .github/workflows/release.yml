@@ -28,7 +28,9 @@ jobs:
         with:
           python-version: '3.13'
           cache: 'pip'
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            packages/psu-mcp/pyproject.toml
 
       # scripts/build_exe.ps1 refuses to run without .venv at the repository root,
       # so CI reproduces the local layout instead of patching the script.
@@ -38,6 +40,7 @@ jobs:
           python -m venv .venv
           .venv/Scripts/python.exe -m pip install --upgrade pip
           .venv/Scripts/python.exe -m pip install -r requirements.txt
+          .venv/Scripts/python.exe -m pip install -e packages/psu-mcp
 
       - name: Check release manifest
         shell: pwsh
@@ -45,6 +48,16 @@ jobs:
           # 版本真源、update/latest.json 与 tag 三方对齐；对不齐就别浪费时间构建。
           # tag 来源：tag 触发时是 GITHUB_REF_NAME，dispatch 时退回本地 HEAD tag。
           .venv/Scripts/python.exe scripts/gen_manifest.py --check
+
+      - name: Test suite gate
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: '1'
+        run: |
+          # Unit + self-contained integration tests must pass before spending time on a build.
+          .venv/Scripts/python.exe -m pytest src -q
+          .venv/Scripts/python.exe -m pytest packages/psu-mcp/tests -q
 
       - name: Build executable
         shell: pwsh

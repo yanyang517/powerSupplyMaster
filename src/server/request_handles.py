@@ -40,8 +40,9 @@ from .protocal.protocal import (
     SetMaxVoltageRequest,
     SetOnOffRequest,
     SettingResponse,
+    SettingErrorResponse,
 )
-from .runtime_config import runtime_config
+from .runtime_config import runtime_config, SetpointLimitError, normalize_power_setting
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,10 @@ async def handle_release_lease(request: ReleaseLeaseRequest, session: Session) -
     if lease.release(session.client_id):
         return BaseResponse(request_id=request.request_id, status="success",
                             message=f"lease released by {session.client_id}")
+    if lease.holder == session.client_id and lease.reservation_busy:
+        return BaseResponse(request_id=request.request_id, status="error",
+                            message="[lease_busy] a write reservation is active or quarantined; "
+                                    "retry after it finishes or the lease TTL expires")
     return BaseResponse(request_id=request.request_id, status="error",
                         message=f"[not_holder] control lease belongs to {lease.holder!r}, "
                                 f"only the holder can release it")
@@ -141,7 +146,14 @@ async def handle_release_lease(request: ReleaseLeaseRequest, session: Session) -
 #         })
 
 def _device_not_connected(req: BaseRequest) -> BaseResponse:
-    return BaseResponse(request_id=req.request_id, status="error", message="device not connected")
+    return BaseResponse(request_id=req.request_id, status="error", message="device not connected",
+                        failure_stage="pre_write")
+
+
+def _pre_write_error(req: BaseRequest, message: str) -> BaseResponse:
+    """明确尚未向设备发送写命令，允许分发器安全回滚预留。"""
+    return BaseResponse(request_id=req.request_id, status="error", message=message,
+                        failure_stage="pre_write")
 
 @dispatcher.register("open_device", OpenDeviceRequest, tier=Tier.L2)
 async def handle_open_device(req: OpenDeviceRequest) -> BaseResponse:
@@ -149,7 +161,8 @@ async def handle_open_device(req: OpenDeviceRequest) -> BaseResponse:
     is_connected = await psu.connect(serial_number=req.serial_number, baudrate=req.baud_rate)
     if not is_connected:
         logger.error(f"Open device failed: {psu.last_error}")
-        return BaseResponse(request_id=req.request_id, status="error", message=f"connect failed: {psu.last_error}")
+        return BaseResponse(request_id=req.request_id, status="error",
+                            message=f"connect failed: {psu.last_error}", failure_stage="pre_write")
     logger.info(f"device connected: {psu.identifier}")
     return BaseResponse(request_id=req.request_id, status="success", message=psu.identifier)
 
@@ -167,12 +180,14 @@ async def handle(req: SetVoltageRequest) -> BaseResponse:
     if not psu.is_connected:
         return _device_not_connected(req)
 
-    voltage = req.value
-    limit = runtime_config.max_voltage
-    if not 0 <= voltage <= limit:
-        message = f"voltage {voltage:.2f}V out of allowed range 0~{limit:.2f}V"
-        logger.warning(f"Set voltage rejected: {message}")
-        return BaseResponse(request_id=req.request_id, status="error", message=message)
+    try:
+        voltage = normalize_power_setting("voltage", req.value, req.unit)
+    except SetpointLimitError as exc:
+        logger.warning("Set voltage rejected: %s", exc)
+        return SettingErrorResponse(
+            request_id=req.request_id, status="error", message=str(exc),
+            error=exc.as_dict(), failure_stage="pre_write",
+        )
 
     logger.info(f"Set voltage command: {voltage}")
     await psu.set_voltage(voltage)
@@ -184,12 +199,14 @@ async def handle(req: SetCurrentRequest) -> BaseResponse:
     if not psu.is_connected:
         return _device_not_connected(req)
 
-    current = req.value
-    limit = runtime_config.max_current
-    if not 0 <= current <= limit:
-        message = f"current {current:.3f}A out of allowed range 0~{limit:.3f}A"
-        logger.warning(f"Set current rejected: {message}")
-        return BaseResponse(request_id=req.request_id, status="error", message=message)
+    try:
+        current = normalize_power_setting("current", req.value, req.unit)
+    except SetpointLimitError as exc:
+        logger.warning("Set current rejected: %s", exc)
+        return SettingErrorResponse(
+            request_id=req.request_id, status="error", message=str(exc),
+            error=exc.as_dict(), failure_stage="pre_write",
+        )
 
     logger.info(f"Set current command: {current}")
     await psu.set_current(current)

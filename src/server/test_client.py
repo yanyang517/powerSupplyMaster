@@ -1,382 +1,200 @@
-import asyncio
-import json
-import logging
-import pytest
-import pytest_asyncio
-from typing import Tuple
-from construct import Struct, Int32ub, Bytes, this
+"""Wire-level integration tests with an in-process server and simulated SCPI device.
 
-from .runtime_config import SERVER_PORT
+Run from the repository root:
+    python -m pytest src
+    python -m pytest src/server/test_client.py
+    python -m pytest src -m "integration and not hardware"
+"""
+import asyncio
+
+import pytest
+
+from .conftest import CLIENT_ID, JsonSocketClient, _start, _stop
 from .protocal.protocal import (
-    BaseModel, BaseRequest,
-    EchoRequest,
-    OpenDeviceRequest,
+    BaseRequest,
     CloseDeviceRequest,
+    EchoRequest,
+    ListClientsRequest,
     LoginRequest,
     LogoutRequest,
-
-    VauleResponse,
-
-    VoltageQueryRequest,
-    CurrentQueryRequest,
-    StatusQueryRequest,
-    
+    OpenDeviceRequest,
+    SettingQueryRequest,
     SetVoltageRequest,
-    SetCurrentRequest,
-    SetMaxCurrentRequest,
-    SetMaxVoltageRequest,
+    VoltageQueryRequest,
 )
 
-# 集成测试身份：需要在服务端登记表里存在（默认 config/clients.json 已带这条）
-CLIENT_ID = "test-client"
-
-logger = logging.getLogger(__name__)
+pytestmark = [pytest.mark.integration, pytest.mark.asyncio]
 
 
-# Construct protocol definition (same as server)
-MessageProtocol = Struct(
-    "length" / Int32ub,
-    "payload" / Bytes(this.length)
-)
-
-@pytest.mark.asyncio
-class JsonSocketClient:
-    """JSON protocol socket client with construct-based message parsing"""
-    
-    def __init__(self, host: str = '127.0.0.1', port: int = SERVER_PORT):
-        self.host = host
-        self.port = port
-        self.client_id = CLIENT_ID
-        
-
-    async def connect(self) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
-        self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
-
-    async def close(self) -> None:
-        self._writer.close()    
-    
-    async def build_message(self, payload_json) -> bytes:
-        """Build message with length prefix using construct"""
-        payload_bytes = payload_json.encode('utf-8')
-        
-        message = MessageProtocol.build({
-            'length': len(payload_bytes),
-            'payload': payload_bytes
-        })
-        
-        logger.debug(f"Built message: , size={len(payload_bytes)} bytes")
-        return message
-    
-    async def parse_response(self, reader: asyncio.StreamReader) -> dict:
-        """Parse response using construct library"""
-        length_bytes = await reader.readexactly(4)
-        length_struct = Struct("length" / Int32ub)
-        parsed_length = length_struct.parse(length_bytes)
-        message_length = parsed_length.length
-        
-        payload_bytes = await reader.readexactly(message_length)
-        response_json = payload_bytes.decode('utf-8')
-        response = json.loads(response_json)
-        
-        return response
-    
-    async def send_command(self, reader: asyncio.StreamReader, 
-                          writer: asyncio.StreamWriter, req) -> dict:
-        """Send a command and receive response"""
-
-        message = await self.build_message(req.model_dump_json())
-        writer.write(message)
-        await writer.drain()
-        
-        response = await self.parse_response(reader)
-        return response
-
-    async def request(self, req):
-        rsp = await self.send_command(self._reader, self._writer, req)
-        return rsp
-
-    async def login(self, tier: str = "L2") -> dict:
-        """业务命令之前必须有身份：新门控对未登录连接一律拒绝（echo 除外）。"""
-        return await self.request(LoginRequest(client_id=self.client_id, tier=tier))
-
-@pytest.mark.asyncio
 class TestSocketServer:
-    """Test suite for socket server functionality"""
-    
-    async def test_echo_command(self):
-        """Test 2: Echo command - returns the same message"""
-        client = JsonSocketClient()
-        reader, writer = await asyncio.open_connection(client.host, client.port)
+    async def test_echo_command(self, control_client):
+        response = await control_client.request(EchoRequest(message="Hello, Server!"))
 
-        try:
-            req = EchoRequest(message='Hello, Server!')
-            response = await client.send_command(reader, writer, req)
-            
-            logger.info(f"Request: {{'cmd': 'echo', 'message': 'Hello, Server!'}}")
-            logger.info(f"Response: {response}")
-            
-            assert response['status'] == 'success'
-            assert response['message'] == 'Hello, Server!'
-            logger.info("✅ Echo command test PASSED")
-        finally:
-            writer.close()
-            await writer.wait_closed()
+        assert response["status"] == "success"
+        assert response["message"] == "Hello, Server!"
 
-    async def test_open_device_command(self):
-        """Test 5: Connect to device command"""
-        client = JsonSocketClient()
-        reader, writer = await asyncio.open_connection(client.host, client.port)
-        await client.send_command(reader, writer, LoginRequest(client_id=CLIENT_ID, tier="L2"))
+    async def test_business_command_requires_login(self, control_client):
+        response = await control_client.request(SetVoltageRequest(value=5.0))
 
-        try:
-            req = OpenDeviceRequest(serial_number='COM8')
-            response = await client.send_command(reader, writer, req)
-            
-            logger.info(f"Request: {{'cmd': 'open_device', 'serial_number': 'COM8'}}")
-            logger.info(f"Response: {response}")
-            
-            assert response['status'] == 'success'
-            logger.info("✅ Open device command test PASSED")
-        finally:
-            writer.close()
-            await writer.wait_closed()
-    
-    async def test_close_device_command(self):
-        """Test 6: Close device command"""
-        client = JsonSocketClient()
-        reader, writer = await asyncio.open_connection(client.host, client.port)
-        await client.send_command(reader, writer, LoginRequest(client_id=CLIENT_ID, tier="L2"))
+        assert response["status"] == "error"
+        assert "not_authenticated" in response["message"]
 
-        try:
-            req = CloseDeviceRequest(device_id='device_id_123')
-            response = await client.send_command(reader, writer, req)
-            
-            logger.info(f"Request: {{'cmd': 'close_device', 'device_id': 'device_id_123'}}")
-            assert response['status'] == 'success'
-        finally:
-            writer.close()
-            await writer.wait_closed()
-    
-    async def test_set_voltage_command(self):
-        """Test 7: Set voltage command"""
-        client = JsonSocketClient()
-        reader, writer = await asyncio.open_connection(client.host, client.port)
-        await client.send_command(reader, writer, LoginRequest(client_id=CLIENT_ID, tier="L2"))
+    async def test_login_command(self, control_client):
+        response = await control_client.request(LoginRequest(client_id=CLIENT_ID, tier="L1"))
 
-        try:
-            req = OpenDeviceRequest(serial_number='COM8')
-            response = await client.send_command(reader, writer, req)
-            
-            logger.info(f"Request: {{'cmd': 'open_device', 'serial_number': 'COM8'}}")
-            logger.info(f"Response: {response}")
-            
-            assert response['status'] == 'success'
-        
-            req = SetVoltageRequest(value=5.0)
-            response = await client.send_command(reader, writer, req)
-            
-            logger.info(f"Request: {{'cmd': 'set_voltage', 'value': 5.0}}")
-            logger.info(f"Response: {response}")
-            assert response['status'] == 'success'
-            logger.info("✅ Set voltage command test PASSED")
-            # await asyncio.sleep(1)
-            # req = VoltageQueryRequest()
-            # response = await client.send_command(reader, writer, req)
-            # logger.info(f"Request: {{'cmd': 'voltage_query'}}")
-            # logger.info(f"Response: {response}")
-            # assert response['status'] == 'success'
-            # assert response['value'] == 5.0
-            # logger.info("✅ Set voltage query test PASSED")
-        finally:
-            writer.close()
-            await writer.wait_closed()
-    async def test_login_command(self):
-        """Test login command"""
-        client = JsonSocketClient()
-        reader, writer = await asyncio.open_connection(client.host, client.port)
+        assert response["status"] == "success"
+        assert response["client_id"] == CLIENT_ID and response["tier"] == "L2"
+        # The registry is an allow-list, not a reusable credential store.
+        assert not {"token", "secret", "password"} & set(response)
 
-        try:
-            req = LoginRequest(client_id=CLIENT_ID, tier='L1')
-            response = await client.send_command(reader, writer, req)
-            
-            logger.info(f"Request: {{'cmd': 'login', 'client_id': CLIENT_ID}}")
-            logger.info(f"Response: {response}")
-            
-            assert response['status'] == 'success'
-            # 生效等级取登记表里的值：申请更低等级不会改变登记身份，只有超出时才降格
-            assert response['client_id'] == CLIENT_ID and response['tier'] == 'L2'
-            logger.info("✅ Login command test PASSED")
-        finally:
-            writer.close()
-            await writer.wait_closed()
+    async def test_logout_command(self, control_client):
+        assert (await control_client.login(tier="L2"))["status"] == "success"
+        assert (await control_client.request(LogoutRequest()))["status"] == "success"
 
-    async def test_logout_command(self):
-        """Test logout command"""
-        client = JsonSocketClient()
-        reader, writer = await asyncio.open_connection(client.host, client.port)
-        await client.send_command(reader, writer, LoginRequest(client_id=CLIENT_ID, tier="L2"))
+        after = await control_client.request(SetVoltageRequest(value=5.0))
+        assert after["status"] == "error" and "not_authenticated" in after["message"]
 
-        try:
-            req = LogoutRequest()
-            response = await client.send_command(reader, writer, req)
-            
-            logger.info(f"Request: {{'cmd': 'logout'}}")
-            logger.info(f"Response: {response}")
-            
-            assert response['status'] == 'success'
-            logger.info("✅ Logout command test PASSED")
-        finally:
-            writer.close()
-            await writer.wait_closed()
+    async def test_open_device_command(self, control_client, simulated_scpi_peer):
+        assert (await control_client.login(tier="L2"))["status"] == "success"
 
+        response = await control_client.request(
+            OpenDeviceRequest(serial_number=simulated_scpi_peer.serial_number)
+        )
 
-    @pytest.mark.skip(reason="Unknown command test needs to be implemented later")
-    async def test_unknown_command(self):
-        """Test unknown command error handling"""
+        assert response["status"] == "success"
+        assert "FAKE" in response["message"]
+        assert "*IDN?" in simulated_scpi_peer.calls
+
+    async def test_close_device_command(self, opened_device):
+        response = await opened_device.request(CloseDeviceRequest(device_id="device_id_123"))
+        assert response["status"] == "success"
+
+        after = await opened_device.request(VoltageQueryRequest())
+        assert after["status"] == "error" and "device not connected" in after["message"]
+
+    async def test_set_voltage_command(self, opened_device, simulated_scpi_peer):
+        response = await opened_device.request(SetVoltageRequest(value=5.0))
+
+        assert response["status"] == "success"
+        assert response["value"] == 5.0
+        # Prove the real driver sent bytes through the transport, rather than mocking it.
+        assert "VOLTage 5.00" in simulated_scpi_peer.calls
+
+    async def test_setting_query_over_the_wire(self, control_client):
+        assert (await control_client.login())["status"] == "success"
+
+        response = await control_client.request(SettingQueryRequest())
+
+        assert response["status"] == "success"
+        assert response["max_voltage"] == 30.0
+        assert response["version"]
+
+    @pytest.mark.skip(reason="Unknown-command response contract is not yet defined")
+    async def test_unknown_command(self, control_client):
         from typing import Literal
-        
-        client = JsonSocketClient()
-        reader, writer = await asyncio.open_connection(client.host, client.port)
-        await client.send_command(reader, writer, LoginRequest(client_id=CLIENT_ID, tier="L2"))
 
+        class UnknownRequest(BaseRequest):
+            type: Literal["unknown_cmd"] = "unknown_cmd"
+            data: str = "test"
+
+        response = await control_client.request(UnknownRequest(data="test data"))
+        assert response["status"] == "error"
+        assert "Unknown command" in response.get("message", "")
+
+
+class TestConnectionManagement:
+    async def test_connection_establishment(self, control_server):
+        assert control_server > 0
+        reader, writer = await asyncio.open_connection("127.0.0.1", control_server)
         try:
-            # Create a request with an unknown command type
-            class UnknownRequest(BaseRequest):
-                type: Literal["unknown_cmd"] = "unknown_cmd"
-                data: str = "test"
-            
-            req = UnknownRequest(data="test data")
-            response = await client.send_command(reader, writer, req)
-            
-            logger.info(f"Request: {{'cmd': 'unknown_cmd'}}")
-            logger.info(f"Response: {response}")
-            
-            assert response['status'] == 'error'
-            assert 'Unknown command' in response.get('message', '')
-            logger.info("✅ Unknown command error handling test PASSED")
+            assert writer.is_closing() is False
         finally:
             writer.close()
             await writer.wait_closed()
 
-
-@pytest_asyncio.fixture
-async def opened_device():
-    client = JsonSocketClient()
-    await client.connect()
-    assert (await client.login())['status'] == 'success'
-
-    req = OpenDeviceRequest(serial_number='COM8')
-    response = await client.request(req)
-    
-    yield client
-    
-    await client.close()
-
-
-@pytest.mark.asyncio
-class TestDevice:
-    """Test suite for server functionality"""
-    
-    async def test_set_voltage_command(self, opened_device):
-        """Test 7: Set voltage command"""
-
-        client = opened_device
-        req = SetVoltageRequest(value=5.0)
-        response = await client.request(req)
-        
-        logger.info(f"Request: {{'cmd': 'set_voltage', 'value': 5.0}}")
-        logger.info(f"Response: {response}")
-        assert response['status'] == 'success'
-        logger.info("✅ Set voltage command test PASSED")
-    
-    async def test_voltage_query_command(self, opened_device):
-        """Test 8: Voltage query command"""
-        client = opened_device
-        req = VoltageQueryRequest()
-        response = await client.request(req)
-        
-        logger.info(f"Request: {{'cmd': 'voltage_query'}}")
-        logger.info(f"Response: {response}")
-        assert response['status'] == 'success'
-        assert abs(response['value'] - 5.0) < 0.11
-
-
-@pytest.mark.asyncio
-class TestVoltageDevice:
-    """Test suite for server functionality"""
-    _target_voltage = 5.0
-    async def test_set_voltage_command(self, opened_device):
-        """Test 7: Set voltage command"""
-
-        client = opened_device
-        req = SetVoltageRequest(value=self._target_voltage)
-        response = await client.request(req)
-        
-        logger.info(f"Request: {{'cmd': 'set_voltage', 'value': 5.0}}")
-        logger.info(f"Response: {response}")
-        assert response['status'] == 'success'
-        logger.info("✅ Set voltage command test PASSED")
-    
-    #repeat 5 times
-    @pytest.mark.repeat(5)
-    async def test_repeat_voltage_query_command(self, opened_device):
-        """Test 8: Voltage query command"""
-        client = opened_device
-        req = VoltageQueryRequest()
-        response = await client.request(req)
-        
-        logger.info(f"Request: {{'cmd': 'voltage_query'}}")
-        logger.info(f"Response: {response}")
-        assert response['status'] == 'success'
-        assert abs(response['value'] - self._target_voltage) < 0.11
-
-
-        
-
-
-
-@pytest.mark.asyncio
-class TestConnectionManagement:
-    """Test suite for connection management"""
-    
-    async def test_connection_establishment(self):
-        """Test that client can establish connection to server"""
-        client = JsonSocketClient()
-        
+    async def test_multiple_connections(self, control_server, control_client):
+        """Three unauthenticated sockets coexist with one authenticated client."""
+        clients = [JsonSocketClient(port=control_server) for _ in range(3)]
         try:
-            reader, writer = await asyncio.open_connection(client.host, client.port)
-            logger.info("✅ Connection established successfully")
-            assert writer.is_closing() is False
-            
-            writer.close()
-            await writer.wait_closed()
-            logger.info("✅ Connection closed successfully")
-        except ConnectionRefusedError:
-            pytest.fail("Could not connect! Is the server running?")
+            for client in clients:
+                await client.connect()
+            # A completed round-trip proves each server handler has opened its session.
+            ready = await asyncio.gather(*(
+                client.request(EchoRequest(message="ready")) for client in clients
+            ))
+            assert all(response["status"] == "success" for response in ready)
+            assert (await control_client.login(tier="L2"))["status"] == "success"
 
-    async def test_multiple_connections(self):
-        """Test multiple simultaneous connections"""
-        client = JsonSocketClient()
-        connections = []
-        
-        try:
-            # Create multiple connections
-            for i in range(3):
-                reader, writer = await asyncio.open_connection(client.host, client.port)
-                connections.append((reader, writer))
-                logger.info(f"✅ Connection {i+1} established")
-            
-            assert len(connections) == 3
-            
-            # Close all connections
-            for reader, writer in connections:
+            listed = await control_client.request(ListClientsRequest())
+            assert listed["status"] == "success"
+            assert len(listed["clients"]) == 4
+            assert {c["client_id"] for c in listed["clients"]} == {None, CLIENT_ID}
+            assert {c["tier"] for c in listed["clients"] if c["authenticated"]} == {"L2"}
+        finally:
+            for client in clients:
+                await client.close()
+
+    @pytest.mark.parametrize(
+        "response_prefix", [b"", b"\x00\x00\x00\x40"], ids=["header", "body"]
+    )
+    async def test_request_read_times_out(self, response_prefix):
+        """A peer that stalls before the header or body cannot hang the test client."""
+        async def silent_peer(reader, writer):
+            try:
+                header = await reader.readexactly(4)
+                await reader.readexactly(int.from_bytes(header, "big"))
+                if response_prefix:
+                    writer.write(response_prefix)
+                    await writer.drain()
+                await reader.read()
+            finally:
                 writer.close()
                 await writer.wait_closed()
-            
-            logger.info("✅ All connections closed successfully")
-        except ConnectionRefusedError:
-            pytest.fail("Could not connect! Is the server running?")
+
+        server, port, tasks = await _start(silent_peer)
+        client = JsonSocketClient(port=port, timeout=0.1)
+        try:
+            await client.connect()
+            with pytest.raises(asyncio.TimeoutError):
+                await client.request(EchoRequest(message="timeout"))
+        finally:
+            await client.close()
+            await _stop(server, tasks)
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, "-v", "-s"])
+class TestDevice:
+    async def test_set_voltage_command(self, opened_device):
+        response = await opened_device.request(SetVoltageRequest(value=5.0))
+
+        assert response["status"] == "success"
+        assert response["value"] == 5.0
+
+    async def test_voltage_query_command(self, opened_device):
+        # Simulator state is per-test; establish the value instead of relying on test order.
+        assert (await opened_device.request(SetVoltageRequest(value=5.0)))["status"] == "success"
+
+        response = await opened_device.request(VoltageQueryRequest())
+
+        assert response["status"] == "success"
+        assert abs(response["value"] - 5.0) < 0.11
+
+
+class TestVoltageDevice:
+    _target_voltage = 5.0
+
+    async def test_set_voltage_command(self, opened_device):
+        response = await opened_device.request(SetVoltageRequest(value=self._target_voltage))
+
+        assert response["status"] == "success"
+        assert response["value"] == self._target_voltage
+
+    # pytest-repeat is not a dependency. Parametrization makes all five executions real.
+    @pytest.mark.parametrize("attempt", range(5))
+    async def test_repeat_voltage_query_command(self, opened_device, attempt):
+        assert (await opened_device.request(
+            SetVoltageRequest(value=self._target_voltage)))["status"] == "success"
+
+        response = await opened_device.request(VoltageQueryRequest())
+
+        assert response["status"] == "success"
+        assert abs(response["value"] - self._target_voltage) < 0.11

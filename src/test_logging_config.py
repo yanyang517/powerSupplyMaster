@@ -221,7 +221,7 @@ def test_asyncio_handler_logs_unretrieved_task_and_preserves_previous_handler(tm
 def test_headless_runner_installs_handler_on_running_loop(monkeypatch):
     seen = []
 
-    async def fake_server_main():
+    async def fake_server_main(host):
         seen.append(asyncio.get_running_loop().get_exception_handler())
 
     monkeypatch.setattr(app_module, "server_main", fake_server_main)
