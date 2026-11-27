@@ -2,6 +2,7 @@ import sys
 import asyncio
 import logging
 import argparse
+import math
 from datetime import datetime
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from logging_config import (
     install_excepthook,
 )
 from server.socket_server import SocketServer, server_main
-from server.runtime_config import runtime_config
+from server.runtime_config import configure_runtime_limits, runtime_config, SERVER_HOST
 from server.registry import ClientRegistry, RegistryError, clients_file_path, use_registry
 from server.session import lease_config
 from device.scpi_power_supply import SCPI_PowerSupply
@@ -98,23 +99,54 @@ def report_startup_failure(message: str) -> None:
         show_startup_error_dialog("powerSupplyMaster 启动失败", text)
 
 
+def finite_nonnegative_float(text: str) -> float:
+    """argparse 类型：拒绝 NaN、无穷和负限值，避免它们进入运行配置。"""
+    try:
+        value = float(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a finite non-negative number") from exc
+    if not math.isfinite(value) or value < 0:
+        raise argparse.ArgumentTypeError("must be a finite non-negative number")
+    return value
+
+
+def finite_positive_float(text: str) -> float:
+    """argparse 类型：租约 TTL 必须是有限正数，不能永久占用或立即失效。"""
+    try:
+        value = float(text)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a finite positive number") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise argparse.ArgumentTypeError("must be a finite positive number")
+    return value
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--no-gui', action='store_true', help='Run without GUI (server mode only)')
+    parser.add_argument('--listen', default=SERVER_HOST, metavar='HOST',
+                        help=f'control server bind address (default: {SERVER_HOST}, loopback only; '
+                             f'0.0.0.0 explicitly exposes every interface - no authentication, '
+                             f'isolated trusted intranet/experimental networks only)')
     parser.add_argument('--no-update-check', action='store_true',
                         help='skip the background check for a newer release (GUI mode only)')
-    parser.add_argument('--max-voltage', type=float, default=runtime_config.max_voltage,
+    parser.add_argument('--max-voltage', type=finite_nonnegative_float, default=runtime_config.max_voltage,
                         help=f'Max allowed set voltage in V (default: {runtime_config.max_voltage})')
-    parser.add_argument('--max-current', type=float, default=runtime_config.max_current,
+    parser.add_argument('--max-current', type=finite_nonnegative_float, default=runtime_config.max_current,
                         help=f'Max allowed set current in A (default: {runtime_config.max_current})')
     parser.add_argument('--clients', default=None, metavar='JSON',
                         help=f'client registry file (default: {clients_file_path()})')
-    parser.add_argument('--lease-ttl', type=float, default=lease_config.ttl_seconds, metavar='SECONDS',
+    parser.add_argument('--lease-ttl', type=finite_positive_float, default=lease_config.ttl_seconds, metavar='SECONDS',
                         help=f'control lease timeout in seconds (default: {lease_config.ttl_seconds:g})')
     return parser.parse_args()
 
 def bootstrap_access(clients_arg, lease_ttl: float) -> ClientRegistry:
     """加载客户端登记表并设定控制权时限；登记表不可用时拒绝启动而不是空表运行。"""
+    if not math.isfinite(lease_ttl) or lease_ttl <= 0:
+        message = "lease ttl must be a finite positive number"
+        logger.error("invalid lease ttl, refusing to start: %s", message)
+        report_startup_failure(message)
+        raise SystemExit(2)
     lease_config.ttl_seconds = lease_ttl
     try:
         registry = ClientRegistry.load(Path(clients_arg) if clients_arg else None)
@@ -127,10 +159,10 @@ def bootstrap_access(clients_arg, lease_ttl: float) -> ClientRegistry:
     return registry
 
 
-async def run_server() -> None:
+async def run_server(host: str = SERVER_HOST) -> None:
     """Run the headless server with exception reporting on its actual loop."""
     install_asyncio_exception_handler(asyncio.get_running_loop())
-    await server_main()
+    await server_main(host)
 
 
 def main(args=None):
@@ -144,8 +176,13 @@ def main(args=None):
 
     args = parse_args()
     logger.info(version.summary())
-    runtime_config.max_voltage = args.max_voltage
-    runtime_config.max_current = args.max_current
+    try:
+        # parse_args 已拦截命令行坏值；启动入口再校验一次，覆盖程序化调用与无效默认值。
+        configure_runtime_limits(args.max_voltage, args.max_current)
+    except ValueError as exc:
+        logger.error("invalid control limits, refusing to start: %s", exc)
+        report_startup_failure(str(exc))
+        raise SystemExit(2)
     logger.info(f"Control limits: max_voltage={runtime_config.max_voltage}V, max_current={runtime_config.max_current}A")
     bootstrap_access(args.clients, args.lease_ttl)
     update_check_enabled = not args.no_update_check
@@ -174,11 +211,11 @@ def main(args=None):
         else:
             logger.info("update check disabled by --no-update-check")
 
-        loop.create_task(server_main())
+        loop.create_task(server_main(args.listen))
         with loop:
             loop.run_forever()
     else:
-        asyncio.run(run_server())
+        asyncio.run(run_server(args.listen))
 
 if __name__ == '__main__':
     main(sys.argv)

@@ -4,6 +4,7 @@ import logging
 import asyncio
 
 from device.scpi_power_supply import SCPI_PowerSupply
+from server.runtime_config import validate_power_setting
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,14 @@ class PowerSupplyModel():
         await self.device.disconnect()
         logger.info(f"Close device")
     async def set_voltage(self, voltage: float) -> None:
+        voltage = validate_power_setting("voltage", voltage)
         await self.device.set_voltage(voltage)
         logger.info(f"Set voltage: {voltage}")
+
+    async def set_current(self, current: float) -> None:
+        current = validate_power_setting("current", current)
+        await self.device.set_current(current)
+        logger.info(f"Set current: {current}")
 
     async def set_on_off(self, value: bool) -> None:
         await self.device.set_on_off(value)

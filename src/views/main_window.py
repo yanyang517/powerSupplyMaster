@@ -1,4 +1,5 @@
 import logging
+import math
 
 from PySide6.QtWidgets import (
     QMainWindow,
@@ -15,6 +16,7 @@ from PySide6.QtCore import Slot, QTimer, Qt, QPointF, QSize
 from PySide6.QtGui import QFont
 
 from .ui.mainWindow_ui import Ui_MainWindow
+from server.runtime_config import runtime_config
 import version
 from recording.processing import trim_to_window
 from .access_panel import AccessPanel
@@ -60,6 +62,9 @@ class MainWindow(QMainWindow):
         self._output_state: bool | None = None
 
         self.setupUi()
+        self._confirmed_voltage_setting = self.ui.voltage_spinBox.value()
+        self._voltage_is_updating = False
+        self._voltage_is_updateing_by_present = False
         self.connect_signal_slots()
         # 初始态显式落一次：基础布局的两钮同亮，互斥形态必须由状态层接管。
         self.update_connection_state(False)
@@ -71,13 +76,11 @@ class MainWindow(QMainWindow):
         self.floating_window.request_output_toggle.connect(self.toggle_output)
         self.floating_window.show()
 
-        self._voltage_is_updating = False
-        self._voltage_is_updateing_by_present = False
-
     def setupUi(self):
         self.ui.setupUi(self)
         self.ui.tabWidget.setTabShape(QTabWidget.TabShape.Rounded)
         self._swap_voltage_dial()
+        self._apply_runtime_voltage_limit()
         self._apply_button_icons()
         self._mount_connection_indicator()
 
@@ -94,6 +97,24 @@ class MainWindow(QMainWindow):
         if perfered_index is not None and 0 <= perfered_index < len(available_ports):
             self.ui.com_num_comboBox.setCurrentIndex(perfered_index)
         self.ui.auto_reconnect_CB.setChecked(self.presenter.auto_connect_enabled())
+
+    def _apply_runtime_voltage_limit(self):
+        """让电压/电流上限显示与启动时生效的安全限值一致，而非 .ui 的静态值。"""
+        voltage_limit = float(runtime_config.max_voltage)
+        self.ui.max_voltage_spinbox.setMaximum(voltage_limit)
+        self.ui.max_voltage_spinbox.setValue(voltage_limit)
+        # 上限框只展示启动参数；编辑它不能改变服务端真实限值。
+        self.ui.max_voltage_spinbox.setReadOnly(True)
+        self.ui.max_voltage_spinbox.setToolTip("由启动参数 --max-voltage 配置")
+        self.ui.voltage_spinBox.setMaximum(voltage_limit)
+        # QDial 使用整数分度；向下取整避免旋钮放出服务端不允许的分数伏值。
+        self.ui.voltage_dial.setMaximum(math.floor(voltage_limit * 100 + 1e-9))
+
+        current_limit = float(runtime_config.max_current)
+        self.ui.max_current_spinBox.setMaximum(current_limit)
+        self.ui.max_current_spinBox.setValue(current_limit)
+        self.ui.max_current_spinBox.setReadOnly(True)
+        self.ui.max_current_spinBox.setToolTip("由启动参数 --max-current 配置")
 
     def _mount_record_tab(self):
         """基础布局没有「记录」这一页，整页在代码侧 addTab 挂上（同 _swap_voltage_dial 的约定）。
@@ -333,10 +354,13 @@ class MainWindow(QMainWindow):
         self.ui.disconnect_Btn.clicked.connect(self.presenter.close_device)
         self.ui.auto_reconnect_CB.toggled.connect(self._on_auto_reconnect_toggled)
         self.ui.ouput_ctrl_Btn.clicked.connect(self.toggle_output)
+        self.ui.max_voltage_spinbox.valueChanged.connect(
+            lambda _value: self._apply_runtime_voltage_limit()
+        )
+        self.ui.max_current_spinBox.valueChanged.connect(
+            lambda _value: self._apply_runtime_voltage_limit()
+        )
 
-        self.ui.max_voltage_spinbox.valueChanged.connect(lambda value: self.ui.voltage_spinBox.setMaximum(value))
-        self.ui.max_voltage_spinbox.valueChanged.connect(lambda value: self.ui.voltage_dial.setMaximum(value*100))
-        
         # Connect chart hover events for legend interaction
         # self.chart.legend().hovered.connect(self._on_legend_hovered)
         # self.ui.max_voltage_spinbox.valueChanged.connect(self.presenter.set_max_voltage)
@@ -356,12 +380,8 @@ class MainWindow(QMainWindow):
 
         if not self._voltage_is_updateing_by_present:
             self.presenter.set_voltage(value)
-        
-        if self._voltage_is_updating:
-            return
-        self._voltage_is_updating = True
-        self.ui.voltage_dial.setValue(value*100)
-        self._voltage_is_updating = False
+
+        # 旋钮只跟随已确认设置值；用户输入本身不代表设备已经接受。
     
 
     def update_voltage(self, value: float):
@@ -438,8 +458,24 @@ class MainWindow(QMainWindow):
         self.connection_status_label.style().polish(self.connection_status_label)
 
     def update_voltage_setting(self, value: float):
-        # self.ui.voltage_dial.setValue(value*100)
-        self.ui.voltage_spinBox.setValue(value)
+        """只在设备写入成功后发布；同步旋钮并守住最后一次已确认值。"""
+        self._voltage_is_updateing_by_present = True
+        try:
+            self.ui.voltage_spinBox.setValue(value)
+        finally:
+            self._voltage_is_updateing_by_present = False
+        self._voltage_is_updating = True
+        try:
+            self.ui.voltage_dial.setValue(value * 100)
+        finally:
+            self._voltage_is_updating = False
+        self._confirmed_voltage_setting = value
+
+    def update_setting_error(self, error: dict):
+        """展示与 TCP 一致的限值文案，并撤销用户输入的未确认电压。"""
+        self.ui.statusbar.showMessage(error["message"])
+        if error["setting"] == "voltage":
+            self.update_voltage_setting(self._confirmed_voltage_setting)
 
     def update_max_voltage(self, value: float):
         self._voltage_is_updateing_by_present = True

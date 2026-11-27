@@ -7,6 +7,7 @@ python -m pytest mcp_server/test_bridge.py
 """
 import asyncio
 import json
+import socket
 
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
@@ -22,7 +23,14 @@ from server.session import hub, lease, lease_config
 from server.socket_server import SocketServer
 
 HOST = "127.0.0.1"
-PORT = 18899  # 测试专用端口，避开默认 18888
+
+
+@pytest.fixture
+def unavailable_port():
+    """Reserve a loopback port without listening so connection refusal is deterministic."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as reserved:
+        reserved.bind((HOST, 0))
+        yield reserved.getsockname()[1]
 
 
 @pytest.fixture(autouse=True)
@@ -73,10 +81,11 @@ def make_fake_device(monkeypatch, connected=True):
     return psu
 
 
-async def start_psu_server():
-    server = SocketServer(host=HOST, port=PORT)
-    srv = await asyncio.start_server(server.handle_client, HOST, PORT)
-    return srv
+async def start_psu_server(port: int = 0):
+    server = SocketServer(host=HOST, port=port)
+    srv = await asyncio.start_server(server.handle_client, HOST, port)
+    server.port = srv.sockets[0].getsockname()[1]
+    return srv, server.port
 
 
 class TestProtocolClient:
@@ -90,9 +99,9 @@ class TestProtocolClient:
         make_fake_device(monkeypatch)
 
         async def scenario():
-            srv = await start_psu_server()
+            srv, port = await start_psu_server()
             try:
-                client = PsuClient(host=HOST, port=PORT, timeout=2.0)
+                client = PsuClient(host=HOST, port=port, timeout=2.0)
                 resp = await client.request("voltage_query")
                 assert resp["status"] == "success"
                 assert resp["value"] == 12.0
@@ -112,9 +121,9 @@ class TestProtocolClient:
         make_fake_device(monkeypatch)
 
         async def scenario():
-            srv = await start_psu_server()
+            srv, port = await start_psu_server()
             try:
-                client = PsuClient(host=HOST, port=PORT, timeout=2.0)
+                client = PsuClient(host=HOST, port=port, timeout=2.0)
                 assert client.tier == "L2", "默认身份应与 set_output 所需的等级一致"
                 for request_type, fields in (("set_voltage", {"value": 12.0}),
                                              ("set_current", {"value": 1.0}),
@@ -132,9 +141,8 @@ class TestProtocolClient:
         make_fake_device(monkeypatch)
 
         async def scenario():
-            client = PsuClient(host=HOST, port=PORT, timeout=2.0)
-
-            srv1 = await start_psu_server()
+            srv1, port = await start_psu_server()
+            client = PsuClient(host=HOST, port=port, timeout=2.0)
             resp = await client.request("voltage_query")
             assert resp["status"] == "success"
             # 模拟 server 进程突然消失：监听关闭 + 现有连接被硬切断
@@ -144,7 +152,7 @@ class TestProtocolClient:
             await asyncio.sleep(0.1)
 
             # server 恢复后，下一次调用应透明重连并成功
-            srv2 = await start_psu_server()
+            srv2, _ = await start_psu_server(port)
             try:
                 resp = await client.request("voltage_query")
                 assert resp["status"] == "success"
@@ -155,9 +163,9 @@ class TestProtocolClient:
 
         asyncio.run(scenario())
 
-    def test_server_down_raises_unavailable(self):
+    def test_server_down_raises_unavailable(self, unavailable_port):
         async def scenario():
-            client = PsuClient(host=HOST, port=PORT, timeout=0.5)
+            client = PsuClient(host=HOST, port=unavailable_port, timeout=0.5)
             with pytest.raises(PsuUnavailableError):
                 await client.request("voltage_query")
 
@@ -174,15 +182,15 @@ class TestProtocolClient:
         use_registry(ClientRegistry.load(path))
 
         async def scenario():
-            client = PsuClient(host=HOST, port=PORT, timeout=2.0)
-            srv1 = await start_psu_server()
+            srv1, port = await start_psu_server()
+            client = PsuClient(host=HOST, port=port, timeout=2.0)
             assert (await client.request("set_voltage", value=12.0))["status"] == "success"
             srv1.close()
             client._writer.transport.abort()
             await asyncio.sleep(0.1)
 
-            srv2 = await start_psu_server()
-            rival = PsuClient(host=HOST, port=PORT, timeout=2.0, client_id="rival")
+            srv2, _ = await start_psu_server(port)
+            rival = PsuClient(host=HOST, port=port, timeout=2.0, client_id="rival")
             try:
                 status = await client.request("lease_status")
                 assert status["holder"] == "mcp-bridge" and status["holder_connected"] is True
@@ -203,8 +211,8 @@ class TestProtocolClient:
         monkeypatch.setattr(lease_config, "ttl_seconds", 0.2)
 
         async def scenario():
-            srv = await start_psu_server()
-            client = PsuClient(host=HOST, port=PORT, timeout=2.0)
+            srv, port = await start_psu_server()
+            client = PsuClient(host=HOST, port=port, timeout=2.0)
             try:
                 assert (await client.request("set_voltage", value=12.0))["status"] == "success"
                 assert (await client.request("lease_status"))["holder"] == "mcp-bridge"
@@ -227,9 +235,9 @@ class TestProtocolClient:
         use_registry(ClientRegistry.load(path))
 
         async def scenario():
-            srv = await start_psu_server()
+            srv, port = await start_psu_server()
             try:
-                client = PsuClient(host=HOST, port=PORT, timeout=2.0)
+                client = PsuClient(host=HOST, port=port, timeout=2.0)
                 with pytest.raises(PsuAccessDeniedError) as ei:
                     await client.request("voltage_query")
                 assert "no_approver" in str(ei.value)
@@ -250,9 +258,9 @@ class TestProtocolClient:
         use_registry(ClientRegistry.load(path))
 
         async def scenario():
-            srv = await start_psu_server()
+            srv, port = await start_psu_server()
             try:
-                client = PsuClient(host=HOST, port=PORT, timeout=2.0,
+                client = PsuClient(host=HOST, port=port, timeout=2.0,
                                    client_id="observer", tier="L0")
                 assert (await client.request("voltage_query"))["status"] == "success"
                 denied = await client.request("set_voltage", value=12.0)
@@ -270,8 +278,8 @@ class TestToolErrorMapping:
         make_fake_device(monkeypatch, connected=connected)
 
         async def scenario():
-            srv = await start_psu_server()
-            tools.client = PsuClient(host=HOST, port=PORT, timeout=2.0)
+            srv, port = await start_psu_server()
+            tools.client = PsuClient(host=HOST, port=port, timeout=2.0)
             try:
                 await body()
             finally:
@@ -297,7 +305,7 @@ class TestToolErrorMapping:
 
         self._scenario(monkeypatch, connected=True, body=body)
 
-    def test_app_not_running_maps_to_start_hint(self, monkeypatch):
+    def test_app_not_running_maps_to_start_hint(self, monkeypatch, unavailable_port):
         make_fake_device(monkeypatch)
 
         async def body():
@@ -306,7 +314,7 @@ class TestToolErrorMapping:
             assert "powerSupplyMaster" in str(ei.value)
 
         async def scenario_no_server():
-            tools.client = PsuClient(host=HOST, port=PORT, timeout=0.5)
+            tools.client = PsuClient(host=HOST, port=unavailable_port, timeout=0.5)
             await body()
 
         asyncio.run(scenario_no_server())
@@ -320,8 +328,8 @@ class TestGetStatus:
             return await tools.get_status()
 
         async def scenario():
-            srv = await start_psu_server()
-            tools.client = PsuClient(host=HOST, port=PORT, timeout=2.0)
+            srv, port = await start_psu_server()
+            tools.client = PsuClient(host=HOST, port=port, timeout=2.0)
             try:
                 return await body()
             finally:
@@ -347,8 +355,8 @@ class TestGetStatus:
         make_fake_device(monkeypatch)
 
         async def scenario():
-            srv = await start_psu_server()
-            tools.client = PsuClient(host=HOST, port=PORT, timeout=2.0)
+            srv, port = await start_psu_server()
+            tools.client = PsuClient(host=HOST, port=port, timeout=2.0)
             try:
                 return await tools.get_status()
             finally:

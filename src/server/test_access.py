@@ -9,12 +9,13 @@ import logging
 import pytest
 
 from . import access
+from . import session as session_mod
 from .dispatcher import dispatcher
-from .protocal.protocal import BaseRequest
+from .protocal.protocal import BaseRequest, VauleResponse
 from .registry import Principal, Tier
 from .request_handles import *  # noqa: F401,F403  确保 handler 完成注册
 from .runtime_config import runtime_config
-from .session import Session, lease
+from .session import Session, lease, lease_config
 from device.scpi_power_supply import SCPI_PowerSupply
 
 
@@ -31,6 +32,17 @@ def dispatch(request_type: str, session=None, **fields):
 
 
 @pytest.fixture
+def lease_clock(monkeypatch):
+    now = [session_mod._now()]
+    monkeypatch.setattr(session_mod, "_now", lambda: now[0])
+
+    def advance(seconds):
+        now[0] += seconds
+
+    return advance
+
+
+@pytest.fixture
 def fake_device(monkeypatch):
     """让写操作在无串口时也能成功，以便观察控制权效果。"""
     psu = SCPI_PowerSupply()
@@ -44,9 +56,9 @@ def fake_device(monkeypatch):
     monkeypatch.setattr(psu, "is_connected", True)
     monkeypatch.setattr(runtime_config, "max_voltage", 30.0)
     monkeypatch.setattr(runtime_config, "max_current", 5.0)
-    lease.revoke()
+    lease._clear()
     yield calls
-    lease.revoke()
+    lease._clear()
 
 
 class TestTierDeclaration:
@@ -150,6 +162,294 @@ class TestLeaseGate:
         resp = dispatch("set_voltage", s, value=99.0)
         assert resp.status == "error"
         assert lease.seconds_remaining() <= remaining_after_success
+
+    def test_first_validation_failure_rolls_back_and_next_client_can_claim(self, fake_device):
+        s = make_session(client_id="a", tier=Tier.L1)
+        resp = dispatch("set_voltage", s, value=99.0)
+        assert resp.status == "error" and "out of allowed range" in resp.message
+        assert resp.failure_stage == "pre_write"
+        assert lease.is_free()
+        assert fake_device == []
+
+        rival = make_session(client_id="b", tier=Tier.L2)
+        assert dispatch("set_voltage", rival, value=13.0).status == "success"
+        assert lease.holder == "b"
+
+    def test_first_device_not_connected_failure_rolls_back(self, fake_device, monkeypatch):
+        psu = SCPI_PowerSupply()
+        monkeypatch.setattr(psu, "is_connected", False)
+        resp = dispatch("set_voltage", make_session(client_id="a", tier=Tier.L1), value=12.0)
+        assert resp.status == "error" and "device not connected" in resp.message
+        assert resp.failure_stage == "pre_write"
+        assert lease.is_free()
+        assert fake_device == []
+
+    def test_handler_exception_quarantines_until_ttl(self, fake_device, monkeypatch,
+                                                      lease_clock, caplog):
+        async def scenario():
+            entered = asyncio.Event()
+            proceed = asyncio.Event()
+
+            async def flaky(request, _session):
+                if request.value == 12.0:
+                    entered.set()
+                    await proceed.wait()
+                    raise RuntimeError("device write failed")
+                return VauleResponse(request_id=request.request_id, status="success", value=request.value)
+
+            monkeypatch.setitem(dispatcher._handlers, "set_voltage", flaky)
+            first = asyncio.create_task(dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 12.0}),
+                make_session(client_id="a", tier=Tier.L1),
+            ))
+            await asyncio.wait_for(entered.wait(), timeout=1.0)
+            rival = make_session(client_id="b", tier=Tier.L2)
+            denied = await dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 13.0}), rival)
+            assert denied.status == "error" and "controlled_by_other" in denied.message
+
+            proceed.set()
+            with caplog.at_level(logging.WARNING, logger="server.session"):
+                with pytest.raises(RuntimeError, match="device write failed"):
+                    await first
+            assert lease.holder == "a"
+            assert lease.reservation_busy is True
+            assert any("quarantined" in r.getMessage() and "RuntimeError" in r.getMessage()
+                       for r in caplog.records)
+            denied = await dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 13.0}), rival)
+            assert denied.status == "error" and "controlled_by_other" in denied.message
+
+            lease_clock(lease_config.ttl_seconds + 1)
+            retry = await dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 13.0}), rival)
+            assert retry.status == "success" and lease.holder == "b"
+
+        asyncio.run(scenario())
+
+    def test_dispatch_timeout_cancellation_quarantines_reservation(self, fake_device, monkeypatch,
+                                                                    lease_clock, caplog):
+        async def scenario():
+            entered = asyncio.Event()
+
+            async def hang(_value):
+                entered.set()
+                await asyncio.Event().wait()
+
+            successful_write = SCPI_PowerSupply().set_voltage
+            monkeypatch.setattr(SCPI_PowerSupply(), "set_voltage", hang)
+            pending = asyncio.create_task(dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 12.0}),
+                make_session(client_id="a", tier=Tier.L1),
+            ))
+            await asyncio.wait_for(entered.wait(), timeout=1.0)
+            assert lease.holder == "a"
+            with caplog.at_level(logging.WARNING, logger="server.session"):
+                with pytest.raises(TimeoutError):
+                    await asyncio.wait_for(pending, timeout=0.01)
+            assert lease.holder == "a"
+            assert lease.reservation_busy is True
+            assert any("quarantined" in r.getMessage() and "cancelled" in r.getMessage()
+                       for r in caplog.records)
+            rival = make_session(client_id="b", tier=Tier.L2)
+            denied = await dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 13.0}), rival)
+            assert denied.status == "error" and "controlled_by_other" in denied.message
+            lease_clock(lease_config.ttl_seconds + 1)
+            monkeypatch.setattr(SCPI_PowerSupply(), "set_voltage", successful_write)
+            retry = await dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 13.0}), rival)
+            assert retry.status == "success" and lease.holder == "b"
+
+        asyncio.run(scenario())
+
+    def test_handler_timeout_exception_quarantines_reservation(self, fake_device, monkeypatch,
+                                                                caplog):
+        class DeviceTimeout(TimeoutError):
+            pass
+
+        async def timed_out(request, _session):
+            raise DeviceTimeout("device write timed out")
+
+        monkeypatch.setitem(dispatcher._handlers, "set_voltage", timed_out)
+        with caplog.at_level(logging.WARNING, logger="server.session"):
+            with pytest.raises(DeviceTimeout, match="device write timed out"):
+                dispatch("set_voltage", make_session(client_id="a", tier=Tier.L1), value=12.0)
+        assert lease.holder == "a" and lease.reservation_busy is True
+        assert any("quarantined" in r.getMessage() and "timeout" in r.getMessage()
+                   for r in caplog.records)
+        rival = make_session(client_id="b", tier=Tier.L2)
+        assert dispatch("set_voltage", rival, value=13.0).status == "error"
+
+    def test_handler_cancellation_quarantines_reservation(self, fake_device, monkeypatch, caplog):
+        async def scenario():
+            entered = asyncio.Event()
+
+            async def hang(_value):
+                entered.set()
+                await asyncio.Event().wait()
+
+            monkeypatch.setattr(SCPI_PowerSupply(), "set_voltage", hang)
+            pending = asyncio.create_task(dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 12.0}),
+                make_session(client_id="a", tier=Tier.L1),
+            ))
+            await asyncio.wait_for(entered.wait(), timeout=1.0)
+            with caplog.at_level(logging.WARNING, logger="server.session"):
+                pending.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await pending
+            assert lease.holder == "a"
+            assert lease.reservation_busy is True
+            assert any("quarantined" in r.getMessage() and "cancelled" in r.getMessage()
+                       for r in caplog.records)
+            rival = make_session(client_id="b", tier=Tier.L2)
+            denied = await dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 13.0}), rival)
+            assert denied.status == "error" and "controlled_by_other" in denied.message
+
+        asyncio.run(scenario())
+
+    def test_unclassified_error_response_quarantines_reservation(self, fake_device, monkeypatch,
+                                                                  caplog):
+        async def failed_after_write(request, _session):
+            return BaseResponse(request_id=request.request_id, status="error",
+                                message="transport returned an error")
+
+        monkeypatch.setitem(dispatcher._handlers, "set_voltage", failed_after_write)
+        with caplog.at_level(logging.WARNING, logger="server.session"):
+            resp = dispatch("set_voltage", make_session(client_id="a", tier=Tier.L1), value=12.0)
+        assert resp.status == "error" and resp.failure_stage is None
+        assert lease.holder == "a" and lease.reservation_busy is True
+        assert any("quarantined" in r.getMessage() and "error_response" in r.getMessage()
+                   for r in caplog.records)
+        rival = make_session(client_id="b", tier=Tier.L2)
+        assert dispatch("set_voltage", rival, value=13.0).status == "error"
+
+    def test_existing_holder_exception_keeps_original_lease(self, fake_device, monkeypatch,
+                                                             lease_clock):
+        owner = make_session(client_id="a", tier=Tier.L1)
+        assert dispatch("set_voltage", owner, value=12.0).status == "success"
+        before = lease.snapshot()
+
+        async def failed_after_write(request, _session):
+            raise OSError("write transport failed")
+
+        monkeypatch.setitem(dispatcher._handlers, "set_voltage", failed_after_write)
+        with pytest.raises(OSError, match="write transport failed"):
+            dispatch("set_voltage", owner, value=13.0)
+        after = lease.snapshot()
+        assert after.holder == "a"
+        assert after.last_written_at == before.last_written_at
+        assert lease.reservation_busy is True
+        lease_clock(lease_config.ttl_seconds + 1)
+        assert lease.is_free()
+
+    def test_existing_holder_validation_failure_keeps_lease(self, fake_device):
+        owner = make_session(client_id="a", tier=Tier.L1)
+        assert dispatch("set_voltage", owner, value=12.0).status == "success"
+        before = lease.snapshot()
+        resp = dispatch("set_voltage", owner, value=99.0)
+        assert resp.status == "error"
+        assert lease.holder == "a"
+        assert lease.snapshot().last_written_at == before.last_written_at
+        assert lease.seconds_remaining() <= before.remaining_seconds
+        assert fake_device == ["set_voltage"]
+
+    def test_competing_client_is_denied_while_first_handler_runs(self, fake_device, monkeypatch):
+        async def scenario():
+            entered = asyncio.Event()
+            proceed = asyncio.Event()
+            calls = []
+
+            async def blocked(value):
+                calls.append(value)
+                entered.set()
+                await proceed.wait()
+                return value
+
+            monkeypatch.setattr(SCPI_PowerSupply(), "set_voltage", blocked)
+            first = asyncio.create_task(dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 12.0}),
+                make_session(client_id="a", tier=Tier.L1),
+            ))
+            await asyncio.wait_for(entered.wait(), timeout=1.0)
+            assert lease.holder == "a"
+            denied = await dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 13.0}),
+                make_session(client_id="b", tier=Tier.L2),
+            )
+            assert denied.status == "error" and "controlled_by_other" in denied.message
+            assert calls == [12.0]
+
+            proceed.set()
+            success = await asyncio.wait_for(first, timeout=1.0)
+            assert success.status == "success" and lease.holder == "a"
+
+        asyncio.run(scenario())
+
+    def test_release_command_rejects_busy_reservation(self, fake_device, monkeypatch):
+        async def scenario():
+            entered = asyncio.Event()
+            proceed = asyncio.Event()
+
+            async def blocked(value):
+                entered.set()
+                await proceed.wait()
+                return value
+
+            monkeypatch.setattr(SCPI_PowerSupply(), "set_voltage", blocked)
+            owner = make_session(client_id="a", tier=Tier.L1)
+            pending = asyncio.create_task(dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 12.0}), owner))
+            await asyncio.wait_for(entered.wait(), timeout=1.0)
+
+            release = await dispatcher.dispatch(
+                json.dumps({"type": "release_lease"}), owner)
+            assert release.status == "error" and "lease_busy" in release.message
+            assert lease.holder == "a"
+            rival = make_session(client_id="b", tier=Tier.L2)
+            denied = await dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 13.0}), rival)
+            assert denied.status == "error" and "controlled_by_other" in denied.message
+
+            proceed.set()
+            assert (await asyncio.wait_for(pending, timeout=1.0)).status == "success"
+            release = await dispatcher.dispatch(
+                json.dumps({"type": "release_lease"}), owner)
+            assert release.status == "success" and lease.is_free()
+
+        asyncio.run(scenario())
+
+    def test_panel_revoke_rejects_busy_reservation_and_audits(self, fake_device, monkeypatch,
+                                                               caplog):
+        async def scenario():
+            entered = asyncio.Event()
+            proceed = asyncio.Event()
+
+            async def blocked(value):
+                entered.set()
+                await proceed.wait()
+                return value
+
+            monkeypatch.setattr(SCPI_PowerSupply(), "set_voltage", blocked)
+            pending = asyncio.create_task(dispatcher.dispatch(
+                json.dumps({"type": "set_voltage", "value": 12.0}),
+                make_session(client_id="a", tier=Tier.L1),
+            ))
+            await asyncio.wait_for(entered.wait(), timeout=1.0)
+            with caplog.at_level(logging.WARNING, logger="server.audit"):
+                assert access.panel_revoke() is None
+            assert lease.holder == "a"
+            assert any("origin=panel" in r.getMessage() and "result=busy" in r.getMessage()
+                       and "holder=a" in r.getMessage() for r in caplog.records)
+
+            proceed.set()
+            assert (await asyncio.wait_for(pending, timeout=1.0)).status == "success"
+            assert access.panel_revoke() == "a"
+            assert lease.is_free()
+
+        asyncio.run(scenario())
 
 
 class TestAudit:

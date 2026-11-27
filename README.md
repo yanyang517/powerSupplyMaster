@@ -49,12 +49,17 @@ python -m venv .venv
 # GUI 模式（在界面中选择 COM 口，点击"连接"）
 .venv/Scripts/python.exe src/app.py
 
-# 仅运行服务（无界面），监听 0.0.0.0:18888
+# 仅运行服务（无界面），默认只监听 127.0.0.1:18888
 .venv/Scripts/python.exe src/app.py --no-gui
+
+# 仅在隔离可信实验网中显式暴露到全部网卡（无身份认证）
+.venv/Scripts/python.exe src/app.py --no-gui --listen 0.0.0.0
 
 # 配置安全限值（默认 30 V / 5 A）
 .venv/Scripts/python.exe src/app.py --max-voltage 24 --max-current 3
 ```
+
+> 控制服务没有 token/mTLS 认证，`client_id` 只是客户端自报身份。默认回环监听；跨机使用必须显式指定 `--listen`，且仅限于隔离可信的实验网。
 
 > 注意：项目内绝对导入以 `src/` 为根，请按上述路径在仓库根目录运行（或 `cd src` 后执行 `python app.py`）。
 
@@ -138,18 +143,33 @@ scripts/                # PyInstaller 打包脚本、清单生成与校验
 
 ## 测试
 
-集成测试（需服务已运行 + 真实或虚拟串口）位于服务端代码同层：
+在仓库根目录运行默认门禁（单元测试 + 自起自停的集成测试）：
 
 ```bash
-cd src
-python -m pytest server/test_client.py -v
+python -m pytest src -q
+python -m pytest packages/psu-mcp/tests -q  # MCP 客户端重试/帧边界回归
 ```
+
+集成测试会在临时回环端口启动 TCP 服务，并用本地 socket 上的 SCPI 模拟器替代串口；不需要预先运行上位机，也不需要真实或虚拟 COM 口。GUI 用例在无显示环境运行时设置 `QT_QPA_PLATFORM=offscreen`。
+
+```bash
+python -m pytest src -q -m "not integration"  # 仅单元测试
+python -m pytest src -q -m "integration and not hardware"  # 仅自包含集成测试
+```
+
+真实串口测试默认排除。仅在显式指定端口后运行，而且只读，不修改电压、电流或输出状态：
+
+```bash
+PSM_TEST_SERIAL_PORT=COM8 python -m pytest src -q -m hardware
+```
+
+未设置 `PSM_TEST_SERIAL_PORT` 时，这些用例带原因跳过。根目录 `pytest.ini` 是测试标记与导入路径的唯一配置。
 
 ## 已知限制
 
-- GUI 与远程 TCP/AI 通路共享同一串口会话，尚无所有权仲裁层——多通路并发控制可以发生但不受协调。
+- GUI 与远程 TCP/AI 通路已有准入授权、控制租约和面板接管确认，但 `client_id` 仍是自报身份，不构成身份认证；默认仅回环监听，跨机只允许隔离可信实验网。
 - 写类命令（`VOLT`、`OUTP`）不回读设备错误队列，设备侧错误对操作者不可见。
-- 部分协议 type 已声明但无处理器；测试套件依赖真实/虚拟串口。
+- 部分协议 type 已声明但无处理器；未知命令的响应契约尚未定稿，对应用例显式跳过。
 
 欢迎提交 PR 改进 —— 参见 GitHub 的 issue 区（Gitee 镜像不接收 PR）。
 

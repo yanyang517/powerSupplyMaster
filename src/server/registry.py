@@ -15,6 +15,8 @@ from enum import IntEnum
 from pathlib import Path
 from typing import Iterator
 
+from .runtime_config import MAX_CLIENT_ID_LENGTH, MAX_REGISTRY_CLIENTS
+
 logger = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
@@ -22,6 +24,18 @@ CONFIG_DIR_NAME = "config"
 CLIENTS_FILE_NAME = "clients.json"
 
 _FORBIDDEN_FIELDS = {"password", "token", "secret", "key", "api_key", "apikey", "credential"}
+
+
+def normalize_client_id(client_id: object) -> str:
+    """Validate and normalize an allow-list key before lookup or persistence."""
+    if not isinstance(client_id, str) or not client_id.strip():
+        raise RegistryError("client id must be a non-empty string")
+    normalized = client_id.strip()
+    if len(normalized) > MAX_CLIENT_ID_LENGTH:
+        raise RegistryError(
+            f"client id must be at most {MAX_CLIENT_ID_LENGTH} characters"
+        )
+    return normalized
 
 
 class Tier(IntEnum):
@@ -77,8 +91,7 @@ def _require_str(entry: dict, field: str, client_id: str) -> str:
 
 
 def _validate_entry(client_id: str, entry: object) -> Principal:
-    if not isinstance(client_id, str) or not client_id.strip():
-        raise RegistryError(f"client id must be a non-empty string, got {client_id!r}")
+    client_id = normalize_client_id(client_id)
     if not isinstance(entry, dict):
         raise RegistryError(f"client {client_id!r} must map to an object, got {type(entry).__name__}")
 
@@ -115,8 +128,18 @@ def parse_registry(raw: str, source: str) -> dict[str, Principal]:
         raise RegistryError(f"{source} is missing the 'clients' object")
     if not isinstance(clients, dict):
         raise RegistryError(f"{source} 'clients' must be an object keyed by client_id")
+    if len(clients) > MAX_REGISTRY_CLIENTS:
+        raise RegistryError(
+            f"{source} exceeds the maximum of {MAX_REGISTRY_CLIENTS} registered clients"
+        )
 
-    return {client_id: _validate_entry(client_id, entry) for client_id, entry in clients.items()}
+    principals: dict[str, Principal] = {}
+    for raw_client_id, entry in clients.items():
+        client_id = normalize_client_id(raw_client_id)
+        if client_id in principals:
+            raise RegistryError(f"{source} contains duplicate normalized client id {client_id!r}")
+        principals[client_id] = _validate_entry(client_id, entry)
+    return principals
 
 
 class ClientRegistry:
@@ -144,17 +167,33 @@ class ClientRegistry:
         return cls(file_path, principals)
 
     def get(self, client_id: str) -> Principal | None:
-        if not isinstance(client_id, str):
+        try:
+            client_id = normalize_client_id(client_id)
+        except RegistryError:
             return None
-        return self._principals.get(client_id.strip())
+        return self._principals.get(client_id)
 
     def add(self, principal: Principal) -> bool:
         """新增或覆盖一个登记项并写回文件；返回是否改变了内容。"""
-        existing = self._principals.get(principal.client_id)
+        client_id = normalize_client_id(principal.client_id)
+        principal = Principal(client_id, principal.tier, principal.name)
+        existing = self._principals.get(client_id)
         if existing == principal:
             return False
-        self._principals[principal.client_id] = principal
-        self.save()
+        if existing is None and len(self._principals) >= MAX_REGISTRY_CLIENTS:
+            raise RegistryError(
+                f"client registry is full (maximum {MAX_REGISTRY_CLIENTS} entries)"
+            )
+        self._principals[client_id] = principal
+        try:
+            self.save()
+        except OSError:
+            # 文件仍是旧状态时，内存也必须回滚，不能把未持久化的身份当作已登记。
+            if existing is None:
+                self._principals.pop(client_id, None)
+            else:
+                self._principals[client_id] = existing
+            raise
         logger.info("client %r registered at tier %s", principal.client_id, principal.tier.name)
         return True
 

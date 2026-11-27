@@ -2,7 +2,8 @@ import logging
 import uuid
 from typing import Literal, Annotated, Union
 
-from pydantic import TypeAdapter, BaseModel, Field, Tag
+from pydantic import TypeAdapter, BaseModel, Field, Tag, field_validator
+from ..runtime_config import MAX_CLIENT_ID_LENGTH
 logger = logging.getLogger(__name__)
 
 # 基础请求模型
@@ -23,8 +24,13 @@ class EchoRequest(BaseRequest):
 class LoginRequest(BaseRequest):
     """登录即准入申请：client_id 由客户端自报，登记表是准入名单而非凭据库。"""
     type: Literal["login"] = "login"
-    client_id: str
+    client_id: str = Field(min_length=1, max_length=MAX_CLIENT_ID_LENGTH)
     tier: Literal["L0", "L1", "L2"] = "L0"
+
+    @field_validator("client_id", mode="before")
+    @classmethod
+    def trim_client_id(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
 
 class LogoutRequest(BaseRequest):
@@ -141,12 +147,29 @@ class BaseResponse(BaseModel):
     """基础响应模型"""
     status: Literal["success", "error"] = "success"
     message: str = ""
+    # 写命令显式声明“尚未写入设备”时，分发器才允许回滚新建预留。
+    # 其他错误响应一律视为结果不明并隔离，不能靠 message 文本猜测。
+    failure_stage: Literal["pre_write"] | None = None
     request_id: str = Field(default_factory=lambda: str(uuid.uuid4())[:8], description="唯一请求ID")
     timestamp: float = Field(default_factory=lambda: __import__('time').time())
 
 class VauleResponse(BaseResponse):
     """带值的响应模型"""
     value: Union[float, int, bool, str]
+
+class SettingError(BaseModel):
+    """设置值被运行时安全限值拒绝；字段可供 GUI 与客户端共同判定。"""
+    code: Literal["negative", "over_limit", "non_finite", "invalid_limit"]
+    setting: Literal["voltage", "current"]
+    value: Union[float, str]
+    minimum: float
+    maximum: Union[float, str]
+    unit: Literal["V", "A"]
+    message: str
+
+class SettingErrorResponse(BaseResponse):
+    """结构化限值错误，同时保留已有 message 契约供 MCP 桥展示。"""
+    error: SettingError
 
 class SettingResponse(BaseResponse):
     """setting_query 响应：当前生效的设置类命令限值，外加服务端实例的应用版本。

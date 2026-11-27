@@ -138,8 +138,24 @@ class LeaseSnapshot:
         }
 
 
+@dataclass(frozen=True)
+class LeaseReservation:
+    """一次写请求对控制权的预留；generation 防止旧请求释放新租约。"""
+
+    client_id: str
+    generation: int
+    acquired: bool
+
+
+@dataclass
+class _ReservationState:
+    active: int
+    rollback_on_failure: bool
+    quarantined_mono: float | None = None
+
+
 class ControlLease:
-    """单一电源的独占控制权。释放条件只有一个：距最后一次成功写入超过 TTL。"""
+    """单一电源的独占控制权；在途预留阻止到期，失败时按凭证回滚。"""
 
     def __init__(self, hub: "SessionHub | None" = None):
         self._holder: str | None = None
@@ -147,26 +163,60 @@ class ControlLease:
         self._acquired_mono: float = 0.0
         self._last_write_mono: float = 0.0
         self._last_write_wall: float | None = None
+        self._generation = 0
+        self._reservations: dict[int, _ReservationState] = {}
         self.hub = hub
+
+    def _pending_state(self) -> _ReservationState | None:
+        return self._reservations.get(self._generation)
+
+    def _expiry_mono(self, state: _ReservationState | None = None) -> float:
+        pending = state or self._pending_state()
+        if pending is not None and pending.quarantined_mono is not None:
+            return pending.quarantined_mono
+        return self._last_write_mono
 
     def _expire_if_stale(self) -> None:
         if self._holder is None:
             return
-        if _now() - self._last_write_mono > lease_config.ttl_seconds:
+        pending = self._pending_state()
+        if pending is not None and pending.active:
+            # 执行中的写请求仍独占设备，不能因 TTL 到期而让第二个写入者进入。
+            return
+        if _now() - self._expiry_mono(pending) > lease_config.ttl_seconds:
             logger.info("control lease of %r expired", self._holder)
             self._clear()
 
     def _clear(self) -> None:
+        self._generation += 1
         self._holder = None
         self._holder_tier = None
         self._acquired_mono = 0.0
         self._last_write_mono = 0.0
         self._last_write_wall = None
+        self._reservations.clear()
+
+    def _start_lease(self, client_id: str, tier: Tier) -> None:
+        self._generation += 1
+        self._reservations.clear()
+        # 起算点放在认领时，之后每次成功写入续期；认领后一直不写也会到期释放。
+        self._acquired_mono = _now()
+        self._last_write_mono = self._acquired_mono
+        self._last_write_wall = time.time()
+        self._holder = client_id
+        self._holder_tier = tier
 
     @property
     def holder(self) -> str | None:
         self._expire_if_stale()
         return self._holder
+
+    @property
+    def reservation_busy(self) -> bool:
+        """仍有写请求在途，或结果不明、正在隔离等待对账/到期。"""
+        self._expire_if_stale()
+        pending = self._pending_state()
+        return bool(pending and (pending.active or pending.quarantined_mono is not None))
 
     def is_held_by(self, client_id: str) -> bool:
         return self.holder == client_id
@@ -180,33 +230,115 @@ class ControlLease:
         if current is not None and current != client_id:
             return False
         if current is None:
-            # 起算点放在认领时，之后每次成功写入续期；认领后一直不写也会到期释放。
-            self._acquired_mono = _now()
-            self._last_write_mono = self._acquired_mono
-            self._last_write_wall = time.time()
-        self._holder = client_id
-        self._holder_tier = tier
+            self._start_lease(client_id, tier)
+        else:
+            self._holder_tier = tier
+        return True
+
+    def reserve(self, client_id: str, tier: Tier) -> LeaseReservation | None:
+        """在调用处理器前原子预留控制权，并返回本次请求的所有权凭证。"""
+        current = self.holder
+        acquired = current is None
+        if current is not None and current != client_id:
+            return None
+        if acquired:
+            self._start_lease(client_id, tier)
+        else:
+            self._holder_tier = tier
+
+        state = self._reservations.get(self._generation)
+        if state is None:
+            # 既有持有者（包括旧 claim 入口）不因一次失败而被释放。
+            state = _ReservationState(active=0, rollback_on_failure=acquired)
+            self._reservations[self._generation] = state
+        state.active += 1
+        return LeaseReservation(client_id, self._generation, acquired)
+
+    def _reservation_state(self, reservation: LeaseReservation) -> _ReservationState | None:
+        if (reservation.client_id != self._holder
+                or reservation.generation != self._generation):
+            return None
+        return self._reservations.get(reservation.generation)
+
+    def _finish_reservation(self, reservation: LeaseReservation) -> _ReservationState | None:
+        state = self._reservation_state(reservation)
+        if state is None or state.active <= 0:
+            return None
+        state.active -= 1
+        return state
+
+    def commit(self, reservation: LeaseReservation) -> bool:
+        """成功写入提交预留并续期；过期或被吊销的凭证不得影响新持有者。"""
+        state = self._reservation_state(reservation)
+        if state is None or state.active <= 0:
+            return False
+        self._last_write_mono = _now()
+        self._last_write_wall = time.time()
+        state.rollback_on_failure = False
+        state.quarantined_mono = None
+        self._finish_reservation(reservation)
+        if state.active == 0:
+            self._reservations.pop(reservation.generation, None)
+        return True
+
+    def rollback(self, reservation: LeaseReservation) -> bool:
+        """确定未写入的失败请求交还预留；隔离中的租约只能对账或等 TTL。"""
+        state = self._finish_reservation(reservation)
+        if state is None:
+            return False
+        if (state.active == 0 and state.rollback_on_failure
+                and state.quarantined_mono is None):
+            logger.info("control lease reservation of %r rolled back", reservation.client_id)
+            self._clear()
+        elif state.active == 0 and state.quarantined_mono is None:
+            self._reservations.pop(reservation.generation, None)
+        return True
+
+    def quarantine(self, reservation: LeaseReservation, reason: str) -> bool:
+        """取消、超时或异常可能发生在写入后，保留归属直到成功对账或 TTL。"""
+        state = self._finish_reservation(reservation)
+        if state is None:
+            return False
+        state.rollback_on_failure = False
+        state.quarantined_mono = _now()
+        logger.warning(
+            "control lease of %r quarantined after uncertain write (%s); "
+            "ownership retained until a successful write or TTL",
+            reservation.client_id, reason,
+        )
         return True
 
     def record_write(self, client_id: str) -> None:
-        """只有成功写入才续期。"""
+        """只有成功写入才续期；旧 claim 入口的成功写入也可解除隔离。"""
         self._expire_if_stale()
         if self._holder != client_id:
             return
         self._last_write_mono = _now()
         self._last_write_wall = time.time()
+        pending = self._pending_state()
+        if pending is not None:
+            pending.rollback_on_failure = False
+            pending.quarantined_mono = None
+            if pending.active == 0:
+                self._reservations.pop(self._generation, None)
 
     def release(self, client_id: str) -> bool:
-        """持有者主动交还；他人交还无效。"""
+        """持有者主动交还；在途或隔离中的写请求不会被移交给竞争对手。"""
         if self.holder != client_id:
+            return False
+        if self.reservation_busy:
+            logger.warning("control lease release by %r rejected: write reservation busy", client_id)
             return False
         self._clear()
         logger.info("control lease released by %r", client_id)
         return True
 
     def revoke(self) -> str | None:
-        """面板强制吊销，返回被吊销的持有者。"""
+        """面板强制吊销；有在途或结果不明的写入时拒绝，返回 None。"""
         current = self.holder
+        if current is not None and self.reservation_busy:
+            logger.warning("control lease revoke of %r rejected: write reservation busy", current)
+            return None
         self._clear()
         if current:
             logger.info("control lease of %r revoked from panel", current)
@@ -218,10 +350,11 @@ class ControlLease:
             return LeaseSnapshot(None, None, 0.0, 0.0, 0.0, None, False)
         ttl = lease_config.ttl_seconds
         idle = _now() - self._last_write_mono
+        remaining = max(0.0, ttl - (_now() - self._expiry_mono()))
         return LeaseSnapshot(
             holder=current,
             tier=self._holder_tier.name if self._holder_tier else None,
-            remaining_seconds=max(0.0, ttl - idle),
+            remaining_seconds=remaining,
             held_seconds=_now() - self._acquired_mono,
             since_last_write_seconds=idle,
             last_written_at=self._last_write_wall,

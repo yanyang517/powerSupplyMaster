@@ -12,6 +12,7 @@ import serial_asyncio
 
 from server.access import set_approval_handler
 from server.session import lease
+from server.runtime_config import SettingName, SetpointLimitError, validate_power_setting
 from recording.recorder import Recorder, reconcile_interrupted
 from recording.settings import (NOMINAL_INTERVAL_MS, RecordSettings, load_settings,
                                 records_dir_for, save_settings, settings_file_path)
@@ -530,14 +531,31 @@ class Presenter(QObject):
             self._sampling_error_shown = False
             self.view.update_sampling_error(None)
     
-    @asyncSlot(float)
-    async def set_voltage(self, voltage):
-        if not await self._may_write_from_panel():
-            logger.info("面板写操作被用户取消：set_voltage=%s", voltage)
+    async def _write_power_setting(self, setting: SettingName, value: float) -> None:
+        """GUI 与 TCP 共用校验；设备写入成功后才发布设置值。"""
+        try:
+            value = validate_power_setting(setting, value)
+            if not await self._may_write_from_panel():
+                logger.info("面板写操作被用户取消：set_%s=%s", setting, value)
+                return
+            # Model 再校验一次，覆盖等待接管确认期间运行时限值发生变化的情况。
+            await getattr(self.model, f"set_{setting}")(value)
+        except SetpointLimitError as exc:
+            logger.warning("面板 set_%s 被拒绝：%s", setting, exc)
+            self.view.update_setting_error(exc.as_dict())
             return
 
-        self.view.update_voltage_setting(voltage)
-        await self.model.set_voltage(voltage)
+        update_setting = getattr(self.view, f"update_{setting}_setting", None)
+        if update_setting is not None:
+            update_setting(value)
+
+    @asyncSlot(float)
+    async def set_voltage(self, voltage):
+        await self._write_power_setting("voltage", voltage)
+
+    @asyncSlot(float)
+    async def set_current(self, current):
+        await self._write_power_setting("current", current)
     
     # @asyncSlot(float)
     # async def set_max_voltage(self, voltage):

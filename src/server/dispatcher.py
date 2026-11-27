@@ -1,4 +1,5 @@
 
+import asyncio
 import logging
 
 from typing import Callable, Awaitable, TypeVar, cast
@@ -94,17 +95,32 @@ class RequestDispatcher:
             return BaseResponse(request_id=request.request_id, status="error",
                                 message=f"[{decision.reason}] {decision.message}")
 
-        # 执行
+        # 执行；控制权已在判定阶段预留，必须显式提交、回滚或隔离。
         try:
             resp = await handler(request, session)
-        except Exception as e:
-            logger.error(f"Error processing request: {e}")
-            access.audit(session, request.type, tier, access.ALLOW, handler_status="exception")
-            raise e
+        except BaseException as e:
+            if isinstance(e, asyncio.CancelledError):
+                reason = "cancelled"
+            elif isinstance(e, TimeoutError):
+                # 也包括 P0-4 socket dispatch deadline 的 TimeoutError 子类。
+                reason = "timeout"
+            else:
+                reason = type(e).__name__
+            access.quarantine_write(decision.reservation, reason)
+            if isinstance(e, Exception):
+                logger.error(f"Error processing request: {e}")
+                access.audit(session, request.type, tier, access.ALLOW, handler_status="exception")
+            raise
 
         status = str(getattr(resp, "status", "success"))
-        if tier.needs_lease and status == "success":
-            access.record_write(session)
+        if tier.needs_lease:
+            if status == "success":
+                access.commit_write(decision.reservation)
+            elif getattr(resp, "failure_stage", None) == "pre_write":
+                access.rollback_write(decision.reservation)
+            else:
+                # 未显式标明写入前失败，一律按结果不明处理，不能据错误文本猜测。
+                access.quarantine_write(decision.reservation, "error_response")
         access.audit(session, request.type, tier, access.ALLOW, handler_status=status)
         logger.info(f"Response: {resp}")
         return resp

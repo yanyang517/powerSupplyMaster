@@ -105,6 +105,140 @@ class TestLeaseClaim:
         assert lease.is_free()
 
 
+class TestLeaseReservation:
+    def test_reservation_is_visible_before_handler_and_blocks_other_client(self, clock, fresh_ttl):
+        lease = ControlLease()
+        reservation = lease.reserve("a", Tier.L1)
+        assert reservation is not None and reservation.acquired is True
+        assert lease.holder == "a"
+        assert lease.reserve("b", Tier.L2) is None
+        assert lease.commit(reservation) is True
+        assert lease.holder == "a"
+        clock.advance(lease_config.ttl_seconds + 1)
+        assert lease.is_free()
+
+    def test_failed_first_write_rolls_back_new_reservation(self, clock, fresh_ttl):
+        lease = ControlLease()
+        reservation = lease.reserve("a", Tier.L1)
+        assert lease.rollback(reservation) is True
+        assert lease.is_free()
+        assert lease.reserve("b", Tier.L2) is not None
+
+    def test_failed_existing_holder_does_not_release_or_renew(self, clock, fresh_ttl):
+        lease = ControlLease()
+        lease.claim("a", Tier.L2)
+        lease.record_write("a")
+        clock.advance(10)
+        before = lease.snapshot()
+        reservation = lease.reserve("a", Tier.L1)
+        assert reservation is not None and reservation.acquired is False
+        clock.advance(5)
+        assert lease.rollback(reservation) is True
+        after = lease.snapshot()
+        assert after.holder == "a"
+        assert after.last_written_at == before.last_written_at
+        assert after.held_seconds == pytest.approx(15, abs=0.1)
+
+    def test_active_reservation_does_not_expire_while_handler_runs(self, clock, fresh_ttl):
+        lease = ControlLease()
+        reservation = lease.reserve("a", Tier.L1)
+        clock.advance(lease_config.ttl_seconds + 1)
+        assert lease.holder == "a"
+        assert lease.reserve("b", Tier.L2) is None
+        assert lease.rollback(reservation) is True
+        assert lease.is_free()
+
+    def test_stale_reservation_cannot_release_or_renew_new_lease(self, clock, fresh_ttl):
+        lease = ControlLease()
+        old = lease.reserve("a", Tier.L1)
+        assert lease.rollback(old) is True
+        current = lease.reserve("a", Tier.L2)
+        clock.advance(10)
+        assert lease.rollback(old) is False
+        assert lease.commit(old) is False
+        assert lease.holder == "a"
+        assert lease.snapshot().since_last_write_seconds == pytest.approx(10, abs=0.1)
+        assert lease.commit(current) is True
+
+    def test_overlapping_failures_release_only_after_last_request_finishes(self, clock, fresh_ttl):
+        lease = ControlLease()
+        first = lease.reserve("a", Tier.L1)
+        second = lease.reserve("a", Tier.L2)
+        assert lease.rollback(first) is True
+        assert lease.holder == "a"
+        assert lease.reserve("b", Tier.L2) is None
+        assert lease.rollback(second) is True
+        assert lease.is_free()
+
+    def test_overlapping_success_keeps_lease_after_other_request_fails(self, clock, fresh_ttl):
+        lease = ControlLease()
+        first = lease.reserve("a", Tier.L1)
+        second = lease.reserve("a", Tier.L2)
+        assert lease.rollback(first) is True
+        assert lease.holder == "a"
+        clock.advance(10)
+        assert lease.commit(second) is True
+        assert lease.holder == "a"
+        assert lease.snapshot().since_last_write_seconds == pytest.approx(0, abs=0.1)
+
+    def test_uncertain_failure_quarantines_until_ttl_from_failure(self, clock, fresh_ttl):
+        lease = ControlLease()
+        reservation = lease.reserve("a", Tier.L1)
+        clock.advance(lease_config.ttl_seconds + 5)
+        assert lease.quarantine(reservation, "timeout") is True
+        assert lease.holder == "a"
+        assert lease.reservation_busy is True
+        assert lease.reserve("b", Tier.L2) is None
+        assert lease.release("a") is False
+        assert lease.revoke() is None
+
+        clock.advance(lease_config.ttl_seconds - 1)
+        assert lease.holder == "a"
+        assert lease.seconds_remaining() == pytest.approx(1, abs=0.1)
+        clock.advance(2)
+        assert lease.is_free()
+        assert lease.reserve("b", Tier.L2) is not None
+
+    def test_definite_failure_cannot_clear_another_requests_quarantine(self, clock, fresh_ttl):
+        lease = ControlLease()
+        uncertain = lease.reserve("a", Tier.L1)
+        definite = lease.reserve("a", Tier.L2)
+        assert lease.quarantine(uncertain, "cancelled") is True
+        assert lease.rollback(definite) is True
+        assert lease.holder == "a"
+        assert lease.reservation_busy is True
+        assert lease.reserve("b", Tier.L2) is None
+        clock.advance(lease_config.ttl_seconds + 1)
+        assert lease.is_free()
+
+    def test_successful_retry_reconciles_quarantine_and_renews(self, clock, fresh_ttl):
+        lease = ControlLease()
+        uncertain = lease.reserve("a", Tier.L1)
+        assert lease.quarantine(uncertain, "transport error") is True
+        retry = lease.reserve("a", Tier.L2)
+        clock.advance(10)
+        assert lease.commit(retry) is True
+        assert lease.reservation_busy is False
+        clock.advance(lease_config.ttl_seconds - 1)
+        assert lease.holder == "a"
+        assert lease.release("a") is True
+
+    def test_existing_holder_quarantine_does_not_renew_last_write(self, clock, fresh_ttl):
+        lease = ControlLease()
+        lease.claim("a", Tier.L2)
+        lease.record_write("a")
+        clock.advance(10)
+        before = lease.snapshot()
+        reservation = lease.reserve("a", Tier.L1)
+        clock.advance(5)
+        assert lease.quarantine(reservation, "timeout") is True
+        after = lease.snapshot()
+        assert after.holder == "a"
+        assert after.last_written_at == before.last_written_at
+        assert after.since_last_write_seconds == pytest.approx(15, abs=0.1)
+        assert after.remaining_seconds == pytest.approx(lease_config.ttl_seconds, abs=0.1)
+
+
 class TestLeaseExpiry:
     def test_write_renews(self, clock, fresh_ttl):
         lease = ControlLease()
@@ -162,6 +296,27 @@ class TestLeaseRelease:
         lease.record_write("a")
         assert lease.release("b") is False
         assert lease.holder == "a"
+
+    def test_release_and_revoke_reject_active_reservation(self, clock, fresh_ttl):
+        lease = ControlLease()
+        reservation = lease.reserve("a", Tier.L1)
+        assert lease.release("a") is False
+        assert lease.revoke() is None
+        assert lease.holder == "a"
+        assert lease.reserve("b", Tier.L2) is None
+        assert lease.commit(reservation) is True
+        assert lease.revoke() == "a"
+        assert lease.is_free()
+
+    def test_release_succeeds_after_last_active_reservation_commits(self, clock, fresh_ttl):
+        lease = ControlLease()
+        first = lease.reserve("a", Tier.L1)
+        second = lease.reserve("a", Tier.L2)
+        assert lease.rollback(first) is True
+        assert lease.release("a") is False
+        assert lease.commit(second) is True
+        assert lease.release("a") is True
+        assert lease.is_free()
 
     def test_panel_revoke_works_on_any_holder(self, clock, fresh_ttl):
         lease = ControlLease()

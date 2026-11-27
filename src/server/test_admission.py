@@ -6,11 +6,19 @@ import asyncio
 import json
 
 import pytest
+from pydantic import ValidationError
 
 from . import access
 from .access import set_approval_handler
 from .dispatcher import dispatcher
+from .protocal.protocal import LoginRequest
 from .registry import ClientRegistry, Principal, Tier, use_registry
+from .runtime_config import (
+    ADMISSION_RATE_WINDOW_SECONDS,
+    MAX_ADMISSION_ATTEMPTS,
+    MAX_CLIENT_ID_LENGTH,
+    MAX_REGISTRY_CLIENTS,
+)
 from .request_handles import *  # noqa: F401,F403  确保 handler 完成注册
 from .session import access_config, hub, lease, pending_approvals
 from device.scpi_power_supply import SCPI_PowerSupply
@@ -175,6 +183,91 @@ class TestFirstContactAdmission:
         set_approval_handler(lambda a: snapshots.append(a.describe()))
         login(anon, "watched", "L1")
         assert snapshots[0]["client_id"] == "watched" and snapshots[0]["tier"] == "L1"
+
+
+class TestAdmissionLimits:
+    def test_login_request_rejects_overlong_client_id(self):
+        with pytest.raises(ValidationError, match="string_too_long"):
+            LoginRequest(client_id="x" * (MAX_CLIENT_ID_LENGTH + 1))
+
+    def test_login_request_trims_before_applying_length_limit(self):
+        client_id = "x" * MAX_CLIENT_ID_LENGTH
+        request = LoginRequest(client_id=f"  {client_id}  ")
+        assert request.client_id == client_id
+
+    def test_direct_admission_rejects_overlong_client_id(self, registry, anon):
+        admission = run(access.admit(
+            anon, "x" * (MAX_CLIENT_ID_LENGTH + 1), Tier.L0
+        ))
+        assert not admission.granted
+        assert admission.reason == "invalid_client_id"
+        assert len(registry) == 3
+
+    def test_login_normalizes_client_id(self, registry, anon):
+        resp = login(anon, "  probe-script  ", "L0")
+        assert resp.status == "success"
+        assert resp.client_id == "probe-script"
+        assert registry.get("probe-script") is not None
+
+    def test_sequential_unique_l0_admissions_are_rate_limited(
+        self, registry, anon, monkeypatch
+    ):
+        now = [1000.0]
+        monkeypatch.setattr(access.time, "monotonic", lambda: now[0])
+        initial_count = len(registry)
+
+        for index in range(MAX_ADMISSION_ATTEMPTS):
+            fresh = hub.open(f"127.0.0.1:{54000 + index}")
+            try:
+                resp = login(fresh, f"probe-{index}", "L0")
+                assert resp.status == "success"
+            finally:
+                hub.close(fresh)
+
+        assert len(registry) == initial_count + MAX_ADMISSION_ATTEMPTS
+        before = registry.path.read_bytes()
+        resp = login(anon, "blocked-probe", "L0")
+        assert resp.status == "error" and "[rate_limited]" in resp.message
+        assert registry.get("blocked-probe") is None
+        assert registry.path.read_bytes() == before
+
+        # Registered identities do not consume the first-contact allowance.
+        assert login(anon, "known-l0", "L0").status == "success"
+
+        now[0] += ADMISSION_RATE_WINDOW_SECONDS
+        recovered = hub.open("127.0.0.1:54999")
+        try:
+            assert login(recovered, "after-window", "L0").status == "success"
+        finally:
+            hub.close(recovered)
+        assert registry.get("after-window") is not None
+
+    def test_rate_limited_l1_does_not_create_pending_approval(self, registry, anon):
+        for index in range(MAX_ADMISSION_ATTEMPTS):
+            assert login(anon, f"unapproved-{index}", "L1").status == "error"
+
+        seen = []
+        set_approval_handler(seen.append)
+        resp = login(anon, "blocked-l1", "L1")
+        assert resp.status == "error" and "[rate_limited]" in resp.message
+        assert seen == []
+        assert len(pending_approvals) == 0
+        assert len(registry) == 3
+
+    def test_full_registry_refuses_new_identity_without_rewrite(self, registry, anon):
+        full = ClientRegistry(registry.path, {
+            f"client-{index}": Principal(f"client-{index}", Tier.L0, f"Client {index}")
+            for index in range(MAX_REGISTRY_CLIENTS)
+        })
+        use_registry(full)
+        before = registry.path.read_bytes()
+
+        resp = login(anon, "one-too-many", "L0")
+
+        assert resp.status == "error" and "[registry_full]" in resp.message
+        assert len(full) == MAX_REGISTRY_CLIENTS
+        assert full.get("one-too-many") is None
+        assert registry.path.read_bytes() == before
 
 
 class TestLeaseCommands:

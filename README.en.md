@@ -49,12 +49,17 @@ python -m venv .venv
 # GUI mode (pick the COM port in the UI, press Connect)
 .venv/Scripts/python.exe src/app.py
 
-# Headless server only, listens on 0.0.0.0:18888
+# Headless server only, listens on 127.0.0.1:18888 by default
 .venv/Scripts/python.exe src/app.py --no-gui
+
+# Explicitly expose every interface on an isolated trusted experimental network only (no authentication)
+.venv/Scripts/python.exe src/app.py --no-gui --listen 0.0.0.0
 
 # Configure safety limits (defaults: 30 V / 5 A)
 .venv/Scripts/python.exe src/app.py --max-voltage 24 --max-current 3
 ```
+
+> The control service has no token/mTLS authentication; `client_id` is self-reported. Loopback is the default. Cross-machine use requires an explicit `--listen` and is restricted to isolated, trusted experimental networks.
 
 > Note: imports are rooted at `src/`, so run from the repo root with the paths above (or `cd src` and run `python app.py`).
 
@@ -138,18 +143,33 @@ Source runs write to `logs/powerSupplyMaster.log` at the repository root; frozen
 
 ## Testing
 
-Integration tests (a running server + a real or virtual COM port) live next to the server code:
+Run the default gate (unit tests + self-contained integration tests) from the repository root:
 
 ```bash
-cd src
-python -m pytest server/test_client.py -v
+python -m pytest src -q
+python -m pytest packages/psu-mcp/tests -q  # MCP retry/framing regressions
 ```
+
+Integration tests start the TCP server on an ephemeral loopback port and use a local socket SCPI peer instead of a serial transport. No running application or real/virtual COM port is required. Set `QT_QPA_PLATFORM=offscreen` for GUI tests on a machine without a display.
+
+```bash
+python -m pytest src -q -m "not integration"  # unit tests only
+python -m pytest src -q -m "integration and not hardware"  # self-contained integration tests only
+```
+
+Real-serial tests are excluded by default. Opt in with an explicit port; these checks are read-only and never change voltage, current or output state:
+
+```bash
+PSM_TEST_SERIAL_PORT=COM8 python -m pytest src -q -m hardware
+```
+
+Without `PSM_TEST_SERIAL_PORT`, hardware tests skip with an explanatory reason. The root `pytest.ini` is the single source for markers and import paths.
 
 ## Known limitations
 
-- GUI and remote TCP/AI paths share one serial session without an ownership arbitration layer yet — concurrent control from multiple paths is possible but not coordinated.
+- GUI and remote TCP/AI paths have admission authorization, control leases, and panel takeover confirmation, but `client_id` remains self-reported and is not authentication. Loopback is the default; cross-machine use is limited to isolated, trusted experimental networks.
 - Write commands (`VOLT`, `OUTP`) do not read device error queues back, so device-side errors are silent to the operator.
-- Some protocol types are declared without handlers, and the test suite requires real hardware/virtual ports.
+- Some protocol types are declared without handlers; the unknown-command response contract is not yet defined and its test is explicitly skipped.
 
 Contributions to fix these are welcome — see the GitHub issue tracker (the Gitee mirror does not take pull requests).
 

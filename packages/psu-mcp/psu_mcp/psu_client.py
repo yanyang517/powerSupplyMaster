@@ -1,6 +1,7 @@
 """SocketServer 协议客户端：4 字节大端长度前缀 + JSON。
 
-单条长连接、惰性建连、断连后下一次调用前透明重连重试一次（design D7）。
+单条长连接、惰性建连。只有明确的只读命令在传输失败后重连重试一次；
+写命令超时或协议失败后直接报错，避免对已执行但未收到应答的设备操作重复下发。
 每条新连接建立后先 login：控制权按 `client_id` 存续，所以重连后重新登录即可拿回租约。
 """
 import asyncio
@@ -16,6 +17,20 @@ logger = logging.getLogger(__name__)
 # 两侧一致性由主仓库 src/mcp_server/test_bridge.py 的线上协议回归兜底（design D3）。
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 18888
+DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024
+DEFAULT_CLOSE_TIMEOUT = 2.0
+
+# Fail closed: newly added commands are not assumed safe to replay.
+RETRYABLE_READ_TYPES = frozenset({
+    "echo",
+    "lease_status",
+    "list_clients",
+    "setting_query",
+    "voltage_query",
+    "current_query",
+    "on_off_query",
+    "device_id_query",
+})
 
 
 class PsuUnavailableError(Exception):
@@ -38,20 +53,46 @@ class PsuClient:
     """
 
     def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, timeout: float = 5.0,
-                 client_id: str = "mcp-bridge", tier: str = "L2"):
+                 client_id: str = "mcp-bridge", tier: str = "L2", *,
+                 connection_timeout: float = 5.0,
+                 max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+                 close_timeout: float = DEFAULT_CLOSE_TIMEOUT):
+        if timeout <= 0 or connection_timeout <= 0 or max_response_bytes <= 0:
+            raise ValueError("timeouts and max_response_bytes must be positive")
+        if close_timeout <= 0:
+            raise ValueError("close_timeout must be positive")
         self.host = host
         self.port = port
         self.timeout = timeout
+        self.connection_timeout = connection_timeout
+        self.close_timeout = close_timeout
+        self.max_response_bytes = max_response_bytes
         self.client_id = client_id
         self.tier = tier
         self._reader: Optional[asyncio.StreamReader] = None
         self._writer: Optional[asyncio.StreamWriter] = None
         self._lock = asyncio.Lock()
 
+    async def _timed(self, awaitable, timeout: float, operation: str):
+        try:
+            return await asyncio.wait_for(awaitable, timeout=timeout)
+        except asyncio.TimeoutError as e:
+            raise asyncio.TimeoutError(
+                f"{operation} timed out after {timeout:g}s"
+            ) from e
+
     async def _ensure_connection(self) -> None:
         if self._writer is None:
-            self._reader, self._writer = await asyncio.open_connection(self.host, self.port)
-            await self._login()
+            self._reader, self._writer = await self._timed(
+                asyncio.open_connection(self.host, self.port),
+                self.connection_timeout,
+                "connection",
+            )
+            try:
+                await self._login()
+            except Exception:
+                await self._drop_connection()
+                raise
 
     async def _login(self) -> None:
         """在建连的同一把锁内完成登录，避免业务请求抢在身份建立之前发出。"""
@@ -70,14 +111,17 @@ class PsuClient:
             )
 
     async def _drop_connection(self) -> None:
-        if self._writer is not None:
-            try:
-                self._writer.close()
-                await self._writer.wait_closed()
-            except Exception:
-                pass
-        self._reader = None
-        self._writer = None
+        writer = self._writer
+        try:
+            if writer is not None:
+                writer.close()
+                await self._timed(writer.wait_closed(), self.close_timeout, "connection close")
+        except Exception as e:
+            logger.debug("closing MCP connection: %s", e)
+        finally:
+            # A cancelled or failed close must never leave a reusable handle behind.
+            self._reader = None
+            self._writer = None
 
     async def _read_exact(self, n: int) -> bytes:
         data = await self._reader.readexactly(n)
@@ -91,15 +135,22 @@ class PsuClient:
         request_id = payload["request_id"]
         body = json.dumps(payload).encode("utf-8")
         self._writer.write(struct.pack(">I", len(body)) + body)
-        await asyncio.wait_for(self._writer.drain(), timeout=self.timeout)
+        await self._timed(self._writer.drain(), self.timeout, "request write")
 
-        header = await asyncio.wait_for(self._read_exact(4), timeout=self.timeout)
+        header = await self._timed(self._read_exact(4), self.timeout, "response header read")
         (length,) = struct.unpack(">I", header)
-        raw = await asyncio.wait_for(self._read_exact(length), timeout=self.timeout)
+        if length > self.max_response_bytes:
+            # Reject before readexactly allocates the advertised payload.
+            raise PsuProtocolError(
+                f"response length {length} exceeds limit {self.max_response_bytes}"
+            )
+        raw = await self._timed(self._read_exact(length), self.timeout, "response payload read")
         try:
             response = json.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as e:
             raise PsuProtocolError(f"unparsable response: {e}")
+        if not isinstance(response, dict):
+            raise PsuProtocolError("response must be a JSON object")
         rid = response.get("request_id")
         if rid is None and "error" in response:
             # server 异常兜底路径的 {"error": ...} 帧，不带 request_id，交由上层翻译
@@ -113,16 +164,27 @@ class PsuClient:
     async def request(self, request_type: str, **fields: Any) -> Dict[str, Any]:
         """发送一条协议请求并返回解析后的响应 dict。
 
-        传输层失败时丢弃连接、重连并透明重试一次，仍失败则抛 PsuUnavailableError。
+        只读命令在传输失败时丢弃连接、重连并重试一次；写命令和未知命令
+        不重放，仍失败则抛 PsuUnavailableError。
         """
         payload = {"type": request_type, "request_id": uuid.uuid4().hex[:8], **fields}
+        attempts = 2 if request_type in RETRYABLE_READ_TYPES else 1
         last_error: Optional[Exception] = None
         async with self._lock:
-            for attempt in (1, 2):
+            for attempt in range(1, attempts + 1):
                 try:
                     return await self._roundtrip(payload)
+                except asyncio.CancelledError:
+                    # A partially completed write has an unknown outcome. Discard
+                    # the transport even for reads so no late response is reused.
+                    logger.debug("MCP request cancelled for %s", request_type)
+                    await self._drop_connection()
+                    raise
                 except (OSError, asyncio.TimeoutError, asyncio.IncompleteReadError, PsuProtocolError) as e:
                     last_error = e
-                    logger.warning(f"attempt {attempt} failed for {request_type}: {e}")
+                    logger.warning(
+                        "attempt %d failed for %s: %s%s", attempt, request_type, e,
+                        "" if attempt < attempts else " (not retried)",
+                    )
                     await self._drop_connection()
         raise PsuUnavailableError(str(last_error))

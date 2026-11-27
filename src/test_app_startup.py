@@ -3,6 +3,7 @@
 运行方式（在仓库根目录）：python -m pytest src/test_app_startup.py
 """
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +11,7 @@ import app as app_module
 import version as version_module
 
 from server.registry import get_registry
+from server.runtime_config import runtime_config
 from server.session import lease_config
 
 
@@ -45,6 +47,17 @@ class TestBootstrapAccess:
         app_module.bootstrap_access(str(registry_file), 120.0)
         assert get_registry().get("probe") is not None
 
+    @pytest.mark.parametrize("ttl", [0.0, -1.0, float("nan"), float("inf"), float("-inf")])
+    def test_invalid_lease_ttl_is_rejected_before_mutating_config(self, monkeypatch, ttl):
+        monkeypatch.setattr(lease_config, "ttl_seconds", 120.0)
+        monkeypatch.setattr(app_module, "report_startup_failure", lambda message: None)
+
+        with pytest.raises(SystemExit) as caught:
+            app_module.bootstrap_access("not-read.json", ttl)
+
+        assert caught.value.code == 2
+        assert lease_config.ttl_seconds == 120.0
+
     def test_default_arg_loads_shipped_registry(self):
         """仓库自带的 config/clients.json 必须可用，否则全新检出无法启动。"""
         registry = app_module.bootstrap_access(None, 120.0)
@@ -67,6 +80,58 @@ class TestParseArgs:
     def test_update_check_can_be_disabled(self, monkeypatch):
         monkeypatch.setattr("sys.argv", ["app", "--no-update-check"])
         assert app_module.parse_args().no_update_check is True
+
+    @pytest.mark.parametrize("flag", ["--max-voltage", "--max-current"])
+    @pytest.mark.parametrize("value", ["nan", "inf", "-inf", "-1"])
+    def test_invalid_control_limits_are_rejected(self, monkeypatch, flag, value):
+        monkeypatch.setattr("sys.argv", ["app", flag, value])
+
+        with pytest.raises(SystemExit) as caught:
+            app_module.parse_args()
+
+        assert caught.value.code == 2
+
+    def test_zero_control_limits_are_valid(self, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["app", "--max-voltage", "0", "--max-current", "0"])
+        args = app_module.parse_args()
+        assert args.max_voltage == 0.0
+        assert args.max_current == 0.0
+
+    @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "-inf"])
+    def test_invalid_lease_ttl_is_rejected(self, monkeypatch, value):
+        monkeypatch.setattr("sys.argv", ["app", "--lease-ttl", value])
+
+        with pytest.raises(SystemExit) as caught:
+            app_module.parse_args()
+
+        assert caught.value.code == 2
+
+
+@pytest.mark.parametrize("field,value", [
+    ("max_voltage", float("nan")),
+    ("max_voltage", float("inf")),
+    ("max_current", float("-inf")),
+    ("max_current", -1.0),
+])
+def test_startup_revalidates_limits_before_bootstrapping(monkeypatch, field, value):
+    monkeypatch.setattr(runtime_config, "max_voltage", 30.0)
+    monkeypatch.setattr(runtime_config, "max_current", 5.0)
+    monkeypatch.setattr(app_module, "configure_logging", lambda: None)
+    monkeypatch.setattr(app_module, "install_excepthook", lambda: None)
+    monkeypatch.setattr(app_module, "report_startup_failure", lambda message: None)
+    values = {"max_voltage": 30.0, "max_current": 5.0, field: value}
+    monkeypatch.setattr(app_module, "parse_args", lambda: SimpleNamespace(**values))
+    monkeypatch.setattr(
+        app_module, "bootstrap_access",
+        lambda *args, **kwargs: pytest.fail("invalid limits must stop startup"),
+    )
+
+    with pytest.raises(SystemExit) as caught:
+        app_module.main()
+
+    assert caught.value.code == 2
+    assert runtime_config.max_voltage == 30.0
+    assert runtime_config.max_current == 5.0
 
 
 class TestVersionLogging:
