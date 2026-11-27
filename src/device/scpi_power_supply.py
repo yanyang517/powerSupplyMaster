@@ -56,8 +56,17 @@ class SCPI_PowerSupply(object):
             try:
                 if self._response_recovery_pending:
                     logger.warning("waiting for late response before sending %r", command)
-                    stale_response = await asyncio.wait_for(
-                        self._reader.readline(), timeout=timeout)
+                    try:
+                        stale_response = await asyncio.wait_for(
+                            self._reader.readline(), timeout=timeout)
+                    except asyncio.TimeoutError as exc:
+                        # 迟到响应也等不到时，逐行 SCPI 的请求/响应边界已无法保证。
+                        # 必须让上层结束当前串口会话并重连；继续重试只会让下一条
+                        # 命令永远发不出去，却把 recovery 超时误报成该命令超时。
+                        raise ConnectionError(
+                            "timed out waiting for late SCPI response; "
+                            "serial session must be reopened"
+                        ) from exc
                     if not stale_response:
                         raise ConnectionError("connection closed during response recovery")
                     logger.info("Discarded late response: %r", stale_response)

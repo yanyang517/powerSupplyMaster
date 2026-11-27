@@ -172,7 +172,7 @@ def test_next_command_discards_late_response_before_sending(psu):
     asyncio.run(scenario())
 
 
-def test_recovery_timeout_does_not_send_another_command(psu):
+def test_recovery_timeout_requires_reconnect_without_sending_another_command(psu):
     reader = QueuedReader()
     writer = FakeWriter(0.001)
     psu._reader = reader
@@ -181,10 +181,10 @@ def test_recovery_timeout_does_not_send_another_command(psu):
     async def scenario():
         with pytest.raises(asyncio.TimeoutError):
             await psu._send_cmd(b"OUTP?\n", timeout=0.01)
-        with pytest.raises(asyncio.TimeoutError):
+        with pytest.raises(ConnectionError, match="serial session must be reopened"):
             await psu._send_cmd(b"MEASure:VOLTage?\n", timeout=0.01)
 
-        # 恢复读取也超时：不能继续堆命令，只保留唯一一条迟到响应待消费。
+        # 恢复读取也超时：协议边界已不可信，不能继续堆命令，必须由上层重连。
         assert writer.writes == [b"OUTP?\n"]
         assert psu._response_recovery_pending is True
 
