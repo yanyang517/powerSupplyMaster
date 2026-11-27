@@ -61,7 +61,7 @@ class MainWindow(QMainWindow):
 
         self.setupUi()
         self.connect_signal_slots()
-        # 初始态显式落一次：uic 生成的是两钮同亮，互斥形态必须由状态层接管。
+        # 初始态显式落一次：基础布局的两钮同亮，互斥形态必须由状态层接管。
         self.update_connection_state(False)
         self.access_panel = AccessPanel(self.ui.groupBox_10, self.ui.groupBox_9)
         self._restore_geometry()
@@ -96,7 +96,7 @@ class MainWindow(QMainWindow):
         self.ui.auto_reconnect_CB.setChecked(self.presenter.auto_connect_enabled())
 
     def _mount_record_tab(self):
-        """.ui 里没有「记录」这一页，整页在代码侧 addTab 挂上（同 _swap_voltage_dial 的约定）。
+        """基础布局没有「记录」这一页，整页在代码侧 addTab 挂上（同 _swap_voltage_dial 的约定）。
 
         这里只建控件：状态要等 Presenter 把 recorder 装好才存在，首轮渲染由
         presenter 显式调 update_recording_state() 触发。
@@ -111,10 +111,10 @@ class MainWindow(QMainWindow):
         self.record_panel.render(self.presenter.recording_status())
 
     def _fill_about_tab(self):
-        """在 uic 生成的空「关于」页上挂版本信息。
+        """在基础布局的空「关于」页上挂版本信息。
 
-        沿用 _swap_voltage_dial 的做法：不动 .ui、不重跑 uic，全部在 Python 侧注入。
-        「立即检查」行由 update_notice 接线时追加到同一个布局里。
+        布局、文案和样式统一在 Python 侧维护。「立即检查」行由 update_notice 接线时
+        追加到同一个布局里。
         """
         self.setWindowTitle(f"powerSupplyMaster {version.display_version()}")
 
@@ -162,7 +162,7 @@ class MainWindow(QMainWindow):
         tabs = self.ui.tabWidget
         tabs.setIconSize(QSize(ICON_PX, ICON_PX))
         # 按页签自己的 objectName 认字形：记录页是代码 addTab 上来的，
-        # 不在 ui 控件里，按属性名去找它会静默漏掉一整页。
+        # 不在基础布局里，按属性名去找它会静默漏掉一整页。
         for index in range(tabs.count()):
             glyph = _TAB_GLYPHS.get(tabs.widget(index).objectName())
             if glyph is None:
@@ -198,7 +198,7 @@ class MainWindow(QMainWindow):
         )
 
     def _swap_voltage_dial(self):
-        """把 uic 生成的 QDial 换成自绘的 DarkDial。
+        """把基础布局的 QDial 换成自绘的 DarkDial。
 
         必须在 connect_signal_slots() 之前调用：接线有四处引用
         self.ui.voltage_dial，替换晚于接线会让旧控件的连接静默失效。

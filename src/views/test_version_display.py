@@ -74,7 +74,7 @@ class TestWindowTitle:
         assert version.__version__ in window.windowTitle()
         assert window.windowTitle().startswith("powerSupplyMaster")
 
-    def test_title_replaces_the_uic_placeholder(self, window):
+    def test_title_replaces_the_default_placeholder(self, window):
         assert window.windowTitle() != "MainWindow"
 
 

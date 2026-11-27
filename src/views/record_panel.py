@@ -1,6 +1,6 @@
 """记录面板：使能开关、当前会话状态，以及历史会话的复看。
 
-不动 .ui、不跑 uic：沿用 AccessPanel 与 _swap_voltage_dial 的做法，由 MainWindow 在
+记录页整页由 Python 构建，沿用 AccessPanel 与 _swap_voltage_dial 的做法，由 MainWindow 在
 代码里 addTab 挂上。开关与状态一律以 presenter 的快照为准，面板自己不判断
 "该不该在录"，避免两处真相。
 
