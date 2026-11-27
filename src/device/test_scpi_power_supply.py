@@ -98,6 +98,40 @@ def test_get_on_off_rejects_unparseable_responses(monkeypatch, psu, response):
         asyncio.run(psu.get_on_off())
 
 
+@pytest.mark.parametrize(("on", "command", "expected_delay"), [
+    (True, b"OUTP ON\n", 0.0),
+    (False, b"OUTP OFF\n", scpi.OUTPUT_OFF_SETTLE_SECONDS),
+])
+def test_set_on_off_settles_only_after_off(monkeypatch, psu, on, command, expected_delay):
+    calls = []
+
+    async def fake_send(command, wait_response=True, timeout=1.0, settle_delay=0.0):
+        calls.append((command, wait_response, timeout, settle_delay))
+
+    monkeypatch.setattr(psu, "_send_cmd", fake_send)
+
+    asyncio.run(psu.set_on_off(on))
+
+    assert calls == [(command, False, 1.0, expected_delay)]
+
+
+def test_write_only_settle_delay_holds_command_lock(monkeypatch, psu):
+    psu._reader = FakeReader()
+    psu._writer = FakeWriter(0.001)
+    sleeps = []
+
+    async def fake_sleep(delay):
+        sleeps.append((delay, psu._locker.locked()))
+
+    monkeypatch.setattr(scpi.asyncio, "sleep", fake_sleep)
+
+    assert asyncio.run(psu._send_cmd(
+        b"OUTP OFF\n", wait_response=False, settle_delay=0.05)) == b""
+
+    assert sleeps == [(0.05, True)]
+    assert psu._locker.locked() is False
+
+
 def test_command_timeout_defaults_remain_one_second():
     instance = scpi.SCPI_PowerSupply()
     send_params = inspect.signature(instance._send_cmd).parameters
