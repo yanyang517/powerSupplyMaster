@@ -17,8 +17,8 @@ channel = "stable"
 
 | 落点 | 取值方式 |
 |---|---|
-| 窗口标题 | `display_version()`，在 `MainWindow.setupUi()` 里覆盖 uic 生成的占位文案 |
-| 「关于」页 | `display_version()` + `channel` + `build_label()`，Python 侧注入，不改 `.ui` |
+| 窗口标题 | `display_version()`，在 `MainWindow._fill_about_tab()` 里覆盖基础布局的占位文案 |
+| 「关于」页 | `display_version()` + `channel` + `build_label()`，Python 侧注入 |
 | 启动日志 | `summary()`，`app.main()` 的第一条日志 |
 | exe 文件属性 | `scripts/build_exe.ps1` 读取后生成 PyInstaller 版本资源（见下） |
 | 控制通路 | `setting_query` 响应与 MCP `get_status` 返回值 |
